@@ -32,7 +32,7 @@ notch TITLE [BODY] [options]
 | `-i, --icon NAME` | SF Symbol name |
 | `-a, --app NAME` | Use an app's icon, e.g. `Claude`, `Codex` |
 | `-c, --color COLOR` | Icon tint: `red orange yellow green mint teal blue indigo purple pink gray` or `#RRGGBB` |
-| `-t, --time SECONDS` | How long it stays (default 5) |
+| `-t, --time SECONDS` | How long it stays (default 8, user-configurable) |
 | `--sticky` | Stay until clicked or dismissed |
 | `-o, --open URL\|PATH` | Open on click (a PR, a report, a file) |
 | `-r, --run COMMAND` | Run a shell command on click |
