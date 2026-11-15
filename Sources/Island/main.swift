@@ -1,26 +1,29 @@
 // Island: a Dynamic Island-style panel that grows out of the notch.
 //
-//   Island                 run the background agent (started at login)
-//   notch TITLE [BODY] …   show a message (notch is a symlink to Island)
-//   notch --inbox          open/close the inbox
-//   notch --spotify        open/close the Spotify player
-//   notch --calendar       open/close upcoming calendar events
+//   Island                  run the background agent (started at login)
+//   island TITLE [BODY] …   show a message (island is a symlink to Island;
+//                           `notch`, its old name, still works)
+//   island --inbox          open/close the inbox
+//   island --spotify        open/close the Spotify player
+//   island --calendar       open/close upcoming calendar events
 
 import AppKit
 
 let usage = """
-    usage: notch TITLE [BODY] [options]
-           notch --json '{"title": "…", "body": "…", …}'   (or --json - to read stdin)
-           notch --dismiss                                 hide the message on screen now
-           notch --inbox                                   open/close the inbox (history + waiting T3 threads)
-           notch --spotify                                 open/close the Spotify player
-           notch --calendar                                open/close upcoming calendar events
-           notch --home                                    open/close the overview (bind it to any key)
-           notch --agents                                  open/close the live list of T3 agents
-           notch --settings                                open the settings window
-           notch --preview-device "AirPods Pro"            preview the headphones-connected animation
-           notch --replay-notification                     show the latest mirrored (e.g. Slack) notification again
-           notch --version                                 print the installed version
+    usage: island TITLE [BODY] [options]
+           island --json '{"title": "…", "body": "…", …}'   (or --json - to read stdin)
+           island --dismiss                                 hide the message on screen now
+           island --inbox                                   open/close the inbox (history + waiting T3 threads)
+           island --spotify                                 open/close the Spotify player
+           island --calendar                                open/close upcoming calendar events
+           island --home                                    open/close the overview (bind it to any key)
+           island --agents                                  open/close the live list of T3 agents
+           island --settings                                open the settings window
+           island --preview-device "AirPods Pro"            preview the headphones-connected animation
+           island --replay-notification                     show the latest mirrored (e.g. Slack) notification again
+           island --version                                 print the installed version
+
+    `notch` is the same command under its old name.
 
     History is kept in ~/.local/state/notch/history.jsonl (one JSON entry per line).
 
@@ -48,7 +51,7 @@ let usage = """
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
-if URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent == "notch" {
+if ["island", "notch"].contains(URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent) {
     Notify.run(arguments)
 }
 switch arguments.first {

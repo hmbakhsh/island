@@ -2,7 +2,7 @@
 # Island items for sketchybar. Source this from your sketchybarrc after your
 # other right-side items:
 #
-#   ISLAND_DIR=/path/to/notch-island/integrations/sketchybar
+#   ISLAND_DIR=/path/to/island/integrations/sketchybar
 #   source "$ISLAND_DIR/island.sh"
 #
 # Adds, right to left: a bell (orange with a count while T3 threads wait on

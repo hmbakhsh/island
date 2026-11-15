@@ -1,11 +1,12 @@
 #!/bin/bash
-# Installs or updates Island: Island.app in ~/Applications, the `notch` CLI in
-# ~/.local/bin, and a login item. Re-running it updates from any version.
-#   curl -fsSL https://github.com/hmbakhsh/notch-island/releases/latest/download/install.sh | bash
+# Installs or updates Island: Island.app in ~/Applications, the `island` CLI
+# (and `notch`, its old name) in ~/.local/bin, and a login item. Re-running it
+# updates from any version.
+#   curl -fsSL https://github.com/hmbakhsh/island/releases/latest/download/install.sh | bash
 # VERSION=0.1.0 installs that release (rollback). FROM=build/Island.app installs a local build.
 # --uninstall removes all three (keeps your history and config).
 set -euo pipefail
-REPO="hmbakhsh/notch-island"
+REPO="hmbakhsh/island"
 APP_DIR="${APP_DIR:-$HOME/Applications}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 LABEL="dev.notchisland.island"
@@ -21,18 +22,20 @@ stop() {
 
 if [[ "${1:-}" == "--uninstall" ]]; then
   stop
-  rm -rf "$APP" "$AGENT" "$BIN_DIR/notch"
+  rm -rf "$APP" "$AGENT" "$BIN_DIR/island" "$BIN_DIR/notch"
   echo "Uninstalled. History and settings stay in ~/.local/state/notch and ~/.config/notch-island."
   exit 0
 fi
 
 # Installed with Homebrew: update through it so brew's record stays right.
 for prefix in /opt/homebrew /usr/local; do
-  if [[ -z "${FROM:-}" && -d "$prefix/Caskroom/notch-island" ]]; then
-    echo "Installed with Homebrew; updating through it."
-    "$prefix/bin/brew" update --quiet
-    exec "$prefix/bin/brew" upgrade --cask notch-island
-  fi
+  for cask in island notch-island; do
+    if [[ -z "${FROM:-}" && -d "$prefix/Caskroom/$cask" ]]; then
+      echo "Installed with Homebrew; updating through it."
+      "$prefix/bin/brew" update --quiet
+      exec "$prefix/bin/brew" upgrade --cask "$cask"
+    fi
+  done
 done
 
 TMP="$(mktemp -d)"
@@ -55,8 +58,9 @@ stop
 mkdir -p "$APP_DIR" "$BIN_DIR"
 rm -rf "$APP"
 ditto "$SRC" "$APP"
+ln -sf "$APP/Contents/MacOS/Island" "$BIN_DIR/island"
 ln -sf "$APP/Contents/MacOS/Island" "$BIN_DIR/notch"
 # Converge checks and data migrations (also run on every start); writes the login item.
 "$APP/Contents/MacOS/Island" --migrate
 launchctl bootstrap "gui/$(id -u)" "$AGENT"
-echo "Installed Island $("$APP/Contents/MacOS/Island" --version). Try: notch \"Hello\" -b \"from the notch\" -i hand.wave.fill -c yellow"
+echo "Installed Island $("$APP/Contents/MacOS/Island" --version). Try: island \"Hello\" -b \"from the notch\" -i hand.wave.fill -c yellow"

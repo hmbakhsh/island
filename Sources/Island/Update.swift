@@ -11,10 +11,10 @@ private let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirector
 private let stateDir = ProcessInfo.processInfo.environment["ISLAND_STATE_DIR"] ?? "\(home)/.local/state/notch"
 
 enum Install {
-    static let repo = "hmbakhsh/notch-island"
+    static let repo = "hmbakhsh/island"
     static let bundleID = "dev.notchisland.Island"
     static let label = "dev.notchisland.island"
-    /// This copy of Island.app, also when run through the `notch` symlink.
+    /// This copy of Island.app, also when run through the `island` or `notch` symlink.
     static let appPath = Bundle.main.executableURL.map {
         $0.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
     } ?? Bundle.main.bundlePath
@@ -22,7 +22,8 @@ enum Install {
     /// Built from source (`just install`): updated by pulling and installing again, never from releases.
     static let isDev = version.hasPrefix("dev")
     static let agentPlist = "\(home)/Library/LaunchAgents/\(label).plist"
-    static let cli = "\(home)/.local/bin/notch"
+    /// The CLI links a script install makes: `island`, and `notch` from before the rename.
+    static let clis = ["island", "notch"].map { "\(home)/.local/bin/\($0)" }
 
     /// Running from an installed Island.app, not `swift run` or build/.
     static var installed: Bool {
@@ -55,7 +56,9 @@ enum Install {
         if let old = (NSDictionary(contentsOfFile: agentPlist)?["ProgramArguments"] as? [String])?.first {
             others.append(bundle(of: old))
         }
-        if let old = try? fm.destinationOfSymbolicLink(atPath: cli) { others.append(bundle(of: old)) }
+        for cli in clis {
+            if let old = try? fm.destinationOfSymbolicLink(atPath: cli) { others.append(bundle(of: old)) }
+        }
         for path in Set(others) where path != appPath && Bundle(path: path)?.bundleIdentifier == bundleID {
             let trash = "\(home)/.Trash/Island \(Int(Date().timeIntervalSince1970)).app"
             try? fm.createDirectory(atPath: "\(home)/.Trash", withIntermediateDirectories: true)
@@ -80,9 +83,14 @@ enum Install {
             if agent.write(toFile: agentPlist, atomically: true) { log("wrote \(agentPlist)") }
         }
 
-        // `notch` follows this copy when it points at another one.
-        if let target = try? fm.destinationOfSymbolicLink(atPath: cli),
-           target != executable, target.hasSuffix(".app/Contents/MacOS/Island") {
+        // The CLI links follow this copy when they point at another one. A
+        // script install from before the rename has only `notch`: add `island`.
+        let linked = clis.contains { (try? fm.destinationOfSymbolicLink(atPath: $0)) != nil }
+        for cli in clis {
+            let target = try? fm.destinationOfSymbolicLink(atPath: cli)
+            let stale = target.map { $0 != executable && $0.hasSuffix(".app/Contents/MacOS/Island") } ?? false
+            let missing = target == nil && linked && !fm.fileExists(atPath: cli)
+            guard stale || missing else { continue }
             try? fm.removeItem(atPath: cli)
             try? fm.createSymbolicLink(atPath: cli, withDestinationPath: executable)
             log("pointed \(cli) at \(executable)")
@@ -152,18 +160,23 @@ enum Updater {
         return latest.compare(Install.version, options: .numeric) == .orderedDescending ? latest : nil
     }
 
-    /// Installed with Homebrew: brew does the update, from a terminal.
-    static var brew: String? {
-        ["/opt/homebrew", "/usr/local"]
-            .first { FileManager.default.fileExists(atPath: "\($0)/Caskroom/notch-island") }
-            .map { "\($0)/bin/brew" }
+    /// Installed with Homebrew: brew and the cask's name ("island", or
+    /// "notch-island" until brew migrates it), for an update from a terminal.
+    static var brew: (brew: String, cask: String)? {
+        for prefix in ["/opt/homebrew", "/usr/local"] {
+            for cask in ["island", "notch-island"]
+            where FileManager.default.fileExists(atPath: "\(prefix)/Caskroom/\(cask)") {
+                return ("\(prefix)/bin/brew", cask)
+            }
+        }
+        return nil
     }
 
     /// Run in Terminal from the update banner. Never unattended: brew may need
     /// sudo to replace the app, and without a terminal to ask in it fails
     /// halfway and leaves Island removed and stopped.
-    static func brewCommand(_ brew: String) -> String {
-        "\(brew) update --quiet && \(brew) upgrade --cask notch-island"
+    static func brewCommand(_ brew: String, cask: String) -> String {
+        "\(brew) update --quiet && \(brew) upgrade --cask \(cask)"
     }
 
     /// Installed by install.sh: the release zip goes in over this copy. The new
@@ -194,7 +207,7 @@ enum Updater {
 
     /// For a Homebrew install: a banner, once per version, whose click runs
     /// the upgrade in Terminal.
-    static func announcement(_ version: String, brew: String) -> Message? {
+    static func announcement(_ version: String, brew: (brew: String, cask: String)) -> Message? {
         let file = "\(stateDir)/announced-version"
         let last = (try? String(contentsOfFile: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard last != version else { return nil }
@@ -207,7 +220,7 @@ enum Updater {
         // The command has no quotes, backslashes or spaces in paths, so it drops into
         // both the shell and AppleScript strings as is.
         m.run = "osascript -e 'tell application \"Terminal\" to activate' "
-            + "-e 'tell application \"Terminal\" to do script \"\(brewCommand(brew))\"'"
+            + "-e 'tell application \"Terminal\" to do script \"\(brewCommand(brew.brew, cask: brew.cask))\"'"
         return m
     }
 }

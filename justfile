@@ -1,4 +1,4 @@
-# just install     build Island.app into ~/Applications, link `notch`, start at login
+# just install     build Island.app into ~/Applications, link `island` and `notch`, start at login
 # just uninstall   undo all of that (keeps your history in ~/.local/state/notch)
 # just run         run a debug build in the foreground
 # Releases: ./release.sh X.Y.Z (CI builds it; see install.sh for installing one)

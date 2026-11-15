@@ -3,9 +3,9 @@
 # Tags it, waits for CI to build and attach the release, then bumps the Homebrew cask if there is one.
 set -euo pipefail
 V="${1:?usage: ./release.sh <version>   e.g. ./release.sh 0.2.0}"
-APP_REPO="hmbakhsh/notch-island"
+APP_REPO="hmbakhsh/island"
 TAP_REPO="hmbakhsh/homebrew-tap"
-CASK="Casks/notch-island.rb"
+CASK="Casks/island.rb"
 
 git tag "v$V"
 git push origin "v$V"
@@ -29,7 +29,7 @@ SHA="$(shasum -a 256 "$TMP/Island.zip" | cut -d' ' -f1)"
 NEW="$(jq -r .content <<<"$FILE" | base64 -d |
   sed -E "s/^  version \".*\"/  version \"$V\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/")"
 gh api -X PUT "repos/$TAP_REPO/contents/$CASK" \
-  -f message="notch-island $V" \
+  -f message="island $V" \
   -f content="$(printf '%s\n' "$NEW" | base64)" \
   -f sha="$(jq -r .sha <<<"$FILE")" >/dev/null
 echo "Released $V and bumped the cask."

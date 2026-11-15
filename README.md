@@ -1,4 +1,4 @@
-# notch-island
+# Island
 
 ![A "Tests passed" banner dropping out of a MacBook's notch](docs/screenshots/hero.png)
 
@@ -7,7 +7,7 @@ the notch as a black island, and anything that can run a shell command can
 send one:
 
 ```sh
-notch "Tests passed" -b "412 passed in 2m 14s" -s "Claude · api" -i checkmark.circle.fill -c green
+island "Tests passed" -b "412 passed in 2m 14s" -s "Claude · api" -i checkmark.circle.fill -c green
 ```
 
 It was built for coding agents: they finish, fail or get stuck while you're in
@@ -17,7 +17,7 @@ inbox later.
 
 ## What it does
 
-**Messages from any program.** `notch` shows a banner with an icon, title, an
+**Messages from any program.** `island` shows a banner with an icon, title, an
 optional second line and a small source label. Banners queue, hide after 8
 seconds (change it in settings), pause while hovered, and can open a URL or run
 a command when clicked. With the Caps Lock trigger on, pressing Caps Lock on a
@@ -27,7 +27,7 @@ banner pins it: **⏎** opens it, **Esc** dismisses it.
 counts down to it ("Starts in 1:45"). Click it, or press Caps Lock then ⏎, to
 join the call (Meet, Zoom, Teams…) or open the event.
 
-**Settings.** `notch --settings`, Caps Lock then **,**, or opening Island.app
+**Settings.** `island --settings`, Caps Lock then **,**, or opening Island.app
 again shows a settings window: banner time, meeting reminders, which apps'
 notifications to show, calendar labels and colours, and the Caps Lock trigger.
 Changes apply straight away and are saved to the config file.
@@ -41,7 +41,7 @@ running time; click a thread to open it in T3. When a thread finishes, fails or 
 out of the notch too (title, model and how long it took; click to open the
 thread), unless you're already looking at it in T3. Finished threads stay in
 the list's **Done** checklist for 12 hours: green until you've opened them,
-then checked off. (`notch --agents` opens the list directly; `"t3Banners":
+then checked off. (`island --agents` opens the list directly; `"t3Banners":
 false` turns the banners off.)
 
 <p align="center">
@@ -69,7 +69,7 @@ shows them with a battery ring for a few seconds, like on iPhone. AirPods and
 Beats play Apple's connect chime themselves, so Island stays quiet for those;
 other headphones get a soft "Tink". Set `"deviceSound"` to a system sound name
 or an audio file to play one anyway, or
-`"deviceAlerts": false` to turn it off. `notch --preview-device "AirPods Pro"`
+`"deviceAlerts": false` to turn it off. `island --preview-device "AirPods Pro"`
 shows it without connecting anything.
 
 **Notifications.** Everything that reached the island, grouped: a section per
@@ -91,7 +91,7 @@ a notification came from).
 **Calendar.** The rest of today and tomorrow from the calendars in
 Calendar.app, with time left for the current event and a Join button for
 Meet, Zoom, Teams, Whereby and Webex links; clicking a call joins it too. Declined, cancelled, all-day and
-out-of-office events are hidden. Open it with `notch --calendar`, e.g. from a
+out-of-office events are hidden. Open it with `island --calendar`, e.g. from a
 status bar item.
 
 **Hover the notch** (or press Caps Lock, see below) for an overview: your next
@@ -109,41 +109,42 @@ login item so Island runs in the background.
 **Script:**
 
 ```sh
-curl -fsSL https://github.com/hmbakhsh/notch-island/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/hmbakhsh/island/releases/latest/download/install.sh | bash
 ```
 
-This puts `Island.app` in `~/Applications` and links the `notch` CLI into
-`~/.local/bin` (put that on your `PATH`).
+This puts `Island.app` in `~/Applications` and links the `island` CLI into
+`~/.local/bin` (put that on your `PATH`). `notch`, its old name, is linked too
+and works the same.
 
 **Homebrew:**
 
 ```sh
-brew trust --cask hmbakhsh/tap/notch-island   # once; Homebrew asks before loading third-party casks
-brew install --cask hmbakhsh/tap/notch-island
-open -a Island                                # first start adds the login item
+brew trust --cask hmbakhsh/tap/island   # once; Homebrew asks before loading third-party casks
+brew install --cask hmbakhsh/tap/island
+open -a Island                          # first start adds the login item
 ```
 
-This puts `Island.app` in `/Applications` and links `notch` into Homebrew's `bin`.
+This puts `Island.app` in `/Applications` and links `island` and `notch` into Homebrew's `bin`.
 Switching from the script install is safe: on first start Island moves the old
-copy to the Trash and points the login item and `~/.local/bin/notch` at the new one.
+copy to the Trash and points the login item and `~/.local/bin/island` at the new one.
 
 **Update:** Island checks every 6 hours. Installed with the install line, it
 updates itself while the island is closed. Installed with Homebrew, it shows a
 banner once per release instead; click it to run the upgrade in Terminal, where
 brew can ask for your password if it needs to. To update by hand, run the
 install line again (`VERSION=0.1.0` in front of `bash` installs a specific
-release), or `brew upgrade --cask notch-island`.
+release), or `brew upgrade --cask island`.
 
 **Uninstall:** run the install line with `bash -s -- --uninstall` instead of
-`bash`, or `brew uninstall --cask notch-island`. Either way, history and
+`bash`, or `brew uninstall --cask island`. Either way, history and
 settings stay in `~/.local/state/notch` and `~/.config/notch-island`;
-`brew uninstall --zap --cask notch-island` deletes them too.
+`brew uninstall --zap --cask island` deletes them too.
 
 Built it from source before 0.1.0? Run the install line once; from then on it
 updates itself.
 
 To build from source instead, with Swift 5.9+ (Xcode or the Command Line Tools)
-and [just](https://github.com/casey/just): `git clone https://github.com/hmbakhsh/notch-island`,
+and [just](https://github.com/casey/just): `git clone https://github.com/hmbakhsh/island`,
 then `just install` in it (`just uninstall` removes it). Source builds don't
 update themselves; pull and run `just install` again, or switch to releases with
 the install line.
@@ -183,12 +184,12 @@ next call is Caps Lock, 1, ⏎. The number and arrow keys are only taken while
 the island is open from the keyboard. **Esc** closes the
 overview or any panel (banners leave Esc to the app you're typing in, unless
 you've pinned one with Caps Lock). To use a different
-key, bind `notch --home` in Raycast, skhd or similar instead.
+key, bind `island --home` in Raycast, skhd or similar instead.
 
 ## Sending messages
 
 ```sh
-notch TITLE [BODY] [options]
+island TITLE [BODY] [options]
 ```
 
 | Option | |
@@ -216,7 +217,7 @@ notch TITLE [BODY] [options]
 From a program, `--json` is easiest:
 
 ```sh
-echo '{"title": "Backup done", "body": "38 GB in 12m", "icon": "externaldrive.fill", "color": "teal"}' | notch --json -
+echo '{"title": "Backup done", "body": "38 GB in 12m", "icon": "externaldrive.fill", "color": "teal"}' | island --json -
 ```
 
 History is kept in `~/.local/state/notch/history.jsonl`, one JSON object per
@@ -242,7 +243,7 @@ For SketchyBar there's a ready-made bell and Spotify item. Source it from your
 `sketchybarrc` after your other right-side items:
 
 ```sh
-ISLAND_DIR="/path/to/notch-island/integrations/sketchybar"
+ISLAND_DIR="/path/to/island/integrations/sketchybar"
 source "$ISLAND_DIR/island.sh"
 ```
 
