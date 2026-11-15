@@ -4,6 +4,7 @@ import SwiftUI
 enum Content {
     case player
     case message(Message)
+    case stack(MessageStack)
     case inbox(height: CGFloat)
     case calendar(height: CGFloat)
     case agents(height: CGFloat)
@@ -14,6 +15,8 @@ enum Content {
         switch self {
         case .player: return "player"
         case .message(let m): return "message:" + m.title + (m.body ?? "")
+        // Constant, so a stack changes in place instead of cross-fading.
+        case .stack(let s): return "stack:" + s.app
         case .inbox: return "inbox"
         case .calendar: return "calendar"
         case .agents: return "agents"
@@ -29,9 +32,16 @@ enum Content {
             if m.copies == true { return 60 }
             if m.plain == true { return m.body == nil ? 42 : 56 }
             return m.body == nil ? 50 : 70
+        case .stack(let s): return StackLayout.height(s)
         case .inbox(let height), .calendar(let height), .agents(let height): return height
         case .home: return HomeLayout.height
         }
+    }
+
+    /// Cards to show peeking under the banner.
+    var peeks: Int {
+        guard case .stack(let s) = self, !s.expanded else { return 0 }
+        return min(s.count - 1, 2)
     }
 }
 
@@ -76,6 +86,8 @@ struct IslandView: View {
     let onOpenURL: (URL) -> Void
     let onOpenPanel: (Island.Panel) -> Void
     let onOpenAgent: (String) -> Void
+    let onOpenStackGroup: (String) -> Void
+    let onClearStack: () -> Void
 
     var body: some View {
         let radius: CGFloat = state.open ? 30 : 10
@@ -86,8 +98,10 @@ struct IslandView: View {
         let height = state.open ? state.notch.height + state.content.height
             : compact ? state.liveHeight : state.notch.height
         ZStack(alignment: .top) {
+            StackPeeks(count: state.open ? state.content.peeks : 0, width: width, height: height, radius: radius)
             shape
                 .fill(Color.black)
+                .overlay(FrontEdge(radius: radius, shown: state.open && state.content.peeks > 0))
                 .frame(width: width, height: height)
                 .shadow(color: .black.opacity(state.open ? 0.45 : 0), radius: 14, y: 6)
             // Content is clipped to the shape, so the island reveals it as it
@@ -135,6 +149,13 @@ struct IslandView: View {
             PlayerView(player: player)
         case .message(let message):
             MessageView(message: message, armed: state.armed)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onMessageTap)
+                .onHover(perform: onMessageHover)
+        case .stack(let stack):
+            StackView(
+                stack: stack, selected: state.selected, keyboard: state.armed,
+                onOpen: onOpenStackGroup, onClear: onClearStack)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onMessageTap)
                 .onHover(perform: onMessageHover)

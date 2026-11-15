@@ -34,7 +34,9 @@ struct Message: Codable {
     var mirroredFrom: String?
     /// No icon: just the text, with the body tinted by `color`.
     var plain: Bool?
-    var mergedCount: Int?
+    /// The mirrored notification's row in macOS's notification database, to
+    /// notice when it's cleared (read in Slack, here or on another device).
+    var mirrorID: Int?
     /// Seconds since 1970 of something about to start (a meeting): the banner
     /// counts down to it above the body.
     var countdown: Double?

@@ -422,7 +422,7 @@ struct InboxView: View {
     }
 }
 
-private struct Row: View {
+struct Row: View {
     let leading: AnyView
     let title: String
     let detail: String
@@ -503,7 +503,7 @@ func isoDate(_ s: String) -> Date {
     return f.date(from: s) ?? ISO8601DateFormatter().date(from: s) ?? Date()
 }
 
-private func relative(_ date: Date) -> String {
+func relative(_ date: Date) -> String {
     let s = Int(Date().timeIntervalSince(date))
     if s < 60 { return "now" }
     if s < 3600 { return "\(s / 60)m" }
