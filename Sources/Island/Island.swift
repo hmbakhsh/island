@@ -551,6 +551,13 @@ final class Island: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async { self.updating = false }
                 return
             }
+            if let brew = Updater.brew {
+                DispatchQueue.main.async {
+                    self.updating = false
+                    if let message = Updater.announcement(version, brew: brew) { self.deliver(message) }
+                }
+                return
+            }
             DispatchQueue.main.async {
                 self.whenIdle {
                     DispatchQueue.global().async {

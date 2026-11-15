@@ -3,7 +3,8 @@ import AppKit
 // Releases, updates and migrations. A release is a tag: CI builds Island.zip
 // and publishes it as the latest GitHub release (see release.sh). install.sh
 // installs or updates from it; the running app updates itself every 6 hours
-// while the island is closed, then restarts into the new version.
+// while the island is closed, then restarts into the new version. Homebrew
+// installs get a banner instead, since brew may need sudo.
 
 /// $HOME rather than the account's home folder, so installs can be tested in a throwaway HOME.
 private let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
@@ -151,18 +152,33 @@ enum Updater {
         return latest.compare(Install.version, options: .numeric) == .orderedDescending ? latest : nil
     }
 
-    /// Updates the way it was installed: through Homebrew for the cask,
-    /// otherwise the release zip is swapped in over this copy.
+    /// Installed with Homebrew: brew does the update, from a terminal.
+    static var brew: String? {
+        ["/opt/homebrew", "/usr/local"]
+            .first { FileManager.default.fileExists(atPath: "\($0)/Caskroom/notch-island") }
+            .map { "\($0)/bin/brew" }
+    }
+
+    /// Run in Terminal from the update banner. Never unattended: brew may need
+    /// sudo to replace the app, and without a terminal to ask in it fails
+    /// halfway and leaves Island removed and stopped.
+    static func brewCommand(_ brew: String) -> String {
+        "\(brew) update --quiet && \(brew) upgrade --cask notch-island"
+    }
+
+    /// Installed by install.sh: the release zip goes in over this copy. The new
+    /// app is unpacked beside the old one and swapped in by renaming, so a
+    /// failure leaves the old copy whole.
     static var command: String {
-        if let brew = ["/opt/homebrew", "/usr/local"]
-            .first(where: { FileManager.default.fileExists(atPath: "\($0)/Caskroom/notch-island") }) {
-            return "'\(brew)/bin/brew' update --quiet && '\(brew)/bin/brew' upgrade --cask notch-island"
-        }
+        let app = Install.appPath
         return """
             set -e; T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
             curl -fsSL https://github.com/\(Install.repo)/releases/latest/download/Island.zip -o "$T/Island.zip"
-            ditto -x -k "$T/Island.zip" "$T"
-            rm -rf '\(Install.appPath)' && ditto "$T/Island.app" '\(Install.appPath)'
+            ditto -x -k "$T/Island.zip" "$T/new"
+            test -x "$T/new/Island.app/Contents/MacOS/Island"
+            rm -rf '\(app).new' && ditto "$T/new/Island.app" '\(app).new'
+            mv '\(app)' "$T/old.app"
+            mv '\(app).new' '\(app)' || { mv "$T/old.app" '\(app)'; exit 1; }
             """
     }
 
@@ -174,6 +190,25 @@ enum Updater {
             return false
         }
         return true
+    }
+
+    /// For a Homebrew install: a banner, once per version, whose click runs
+    /// the upgrade in Terminal.
+    static func announcement(_ version: String, brew: String) -> Message? {
+        let file = "\(stateDir)/announced-version"
+        let last = (try? String(contentsOfFile: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard last != version else { return nil }
+        try? version.write(toFile: file, atomically: true, encoding: .utf8)
+        var m = Message(title: "Island \(version) is out")
+        m.body = "Click to update with Homebrew in Terminal"
+        m.icon = "arrow.down.circle.fill"
+        m.color = "blue"
+        m.seconds = 0
+        // The command has no quotes, backslashes or spaces in paths, so it drops into
+        // both the shell and AppleScript strings as is.
+        m.run = "osascript -e 'tell application \"Terminal\" to activate' "
+            + "-e 'tell application \"Terminal\" to do script \"\(brewCommand(brew))\"'"
+        return m
     }
 }
 

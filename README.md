@@ -127,10 +127,12 @@ This puts `Island.app` in `/Applications` and links `notch` into Homebrew's `bin
 Switching from the script install is safe: on first start Island moves the old
 copy to the Trash and points the login item and `~/.local/bin/notch` at the new one.
 
-**Update:** automatic. Island checks every 6 hours and updates while the
-island is closed, through Homebrew if that's how it was installed. To update by
-hand, run the install line again (`VERSION=0.1.0` in front of `bash` installs a
-specific release), or `brew upgrade --cask notch-island`.
+**Update:** Island checks every 6 hours. Installed with the install line, it
+updates itself while the island is closed. Installed with Homebrew, it shows a
+banner once per release instead; click it to run the upgrade in Terminal, where
+brew can ask for your password if it needs to. To update by hand, run the
+install line again (`VERSION=0.1.0` in front of `bash` installs a specific
+release), or `brew upgrade --cask notch-island`.
 
 **Uninstall:** run the install line with `bash -s -- --uninstall` instead of
 `bash`, or `brew uninstall --cask notch-island`. Either way, history and
