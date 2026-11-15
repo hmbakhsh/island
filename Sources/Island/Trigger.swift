@@ -21,6 +21,7 @@ enum Trigger {
     enum ListKey { case up, down, open }
     private static var handlerInstalled = false
     private static var lastPress = Date.distantPast
+    private static var lastOpen = Date.distantPast
 
     static func install(_ action: @escaping () -> Void) {
         remapCapsLock()
@@ -80,7 +81,14 @@ enum Trigger {
         } else if id == 20 {
             escapeAction?()
         } else if id >= 30 {
-            listAction?([ListKey.up, .down, .open][Int(id) - 30])
+            let key = [ListKey.up, .down, .open][Int(id) - 30]
+            // One ⏎ can arrive twice; opening twice would skip a row.
+            if key == .open {
+                let now = Date()
+                defer { lastOpen = now }
+                guard now.timeIntervalSince(lastOpen) > 0.25 else { return }
+            }
+            listAction?(key)
         } else {
             numberAction?(Int(id) - 10)
         }

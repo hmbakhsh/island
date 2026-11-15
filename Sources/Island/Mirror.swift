@@ -7,6 +7,11 @@ import AppKit
 /// config, listing bundle ids such as "com.tinyspeck.slackmacgap".
 final class NotificationMirror {
     var onMessage: ((Message) -> Void)?
+    /// Notification rows Island is still showing or holding; checked each poll.
+    var tracked: () -> [Int] = { [] }
+    /// Rows from `tracked` that macOS no longer has: the notification was
+    /// cleared, usually because it was read in the app.
+    var onRemoved: ((Set<Int>) -> Void)?
     private(set) var apps: [String]
     private var lastID: Int?
     private var timer: Timer?
@@ -40,9 +45,9 @@ final class NotificationMirror {
     func replayLatest() {
         let after = (lastID ?? 0) - 500
         DispatchQueue.global(qos: .utility).async {
-            if let last = Self.fetch(after: after, apps: self.apps)?.rows.last { Self.describe(last.data) }
-            guard let last = Self.fetch(after: after, apps: self.apps)?.rows.last,
-                  let message = Self.message(app: last.app, data: last.data)
+            if let last = Self.fetch(after: after, apps: self.apps, tracked: [])?.rows.last { Self.describe(last.data) }
+            guard let last = Self.fetch(after: after, apps: self.apps, tracked: [])?.rows.last,
+                  let message = Self.message(id: last.id, app: last.app, data: last.data)
             else {
                 log("notification mirror: nothing to replay")
                 return
@@ -53,13 +58,19 @@ final class NotificationMirror {
 
     private func poll() {
         let after = lastID
+        let tracked = tracked()
         DispatchQueue.global(qos: .utility).async {
-            let result = Self.fetch(after: after, apps: self.apps)
-            DispatchQueue.main.async { self.handle(result) }
+            let result = Self.fetch(after: after, apps: self.apps, tracked: tracked)
+            DispatchQueue.main.async {
+                self.handle(result)
+                guard let present = result?.present else { return }
+                let gone = Set(tracked).subtracting(present)
+                if !gone.isEmpty { self.onRemoved?(gone) }
+            }
         }
     }
 
-    private func handle(_ result: (maxID: Int, rows: [(app: String, data: Data)])?) {
+    private func handle(_ result: Fetched?) {
         guard let result else {
             if !warned {
                 warned = true
@@ -74,7 +85,7 @@ final class NotificationMirror {
             return
         }
         for row in result.rows {
-            if let message = Self.message(app: row.app, data: row.data) { onMessage?(message) }
+            if let message = Self.message(id: row.id, app: row.app, data: row.data) { onMessage?(message) }
         }
     }
 
@@ -97,7 +108,7 @@ final class NotificationMirror {
     }
 
     /// The notification's title, subtitle and body from its stored property list.
-    private static func message(app: String, data: Data) -> Message? {
+    private static func message(id: Int, app: String, data: Data) -> Message? {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let request = plist["req"] as? [String: Any]
         else { return nil }
@@ -127,16 +138,23 @@ final class NotificationMirror {
             m.slackID = id
         }
         m.mirroredFrom = app
+        m.mirrorID = id
         return m
     }
 
-    /// New rows after `after` for the chosen apps, plus the newest id overall.
-    /// nil when the database can't be read.
-    private static func fetch(after: Int?, apps: [String]) -> (maxID: Int, rows: [(app: String, data: Data)])? {
+    typealias Fetched = (maxID: Int, rows: [(id: Int, app: String, data: Data)], present: Set<Int>)
+
+    /// New rows after `after` for the chosen apps, which of `tracked` still
+    /// exist, and the newest id overall. nil when the database can't be read.
+    private static func fetch(after: Int?, apps: [String], tracked: [Int]) -> Fetched? {
         let list = apps.map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }.joined(separator: ",")
+        let still = tracked.isEmpty ? "" : """
+            select 'have', rec_id from record where rec_id in (\(tracked.map(String.init).joined(separator: ",")));
+            """
         let query = """
             select r.rec_id, a.identifier, hex(r.data) from record r join app a on a.app_id = r.app_id
             where r.rec_id > \(after ?? Int.max) and a.identifier in (\(list)) order by r.rec_id;
+            \(still)
             select coalesce(max(rec_id), 0) from record;
             """
         let process = Process()
@@ -157,12 +175,17 @@ final class NotificationMirror {
 
         var lines = output.split(separator: "\n").map(String.init)
         guard let last = lines.popLast(), let maxID = Int(last) else { return nil }
-        let rows = lines.compactMap { line -> (app: String, data: Data)? in
+        var rows: [(id: Int, app: String, data: Data)] = []
+        var present = Set<Int>()
+        for line in lines {
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard parts.count == 3, let data = Data(hex: String(parts[2])) else { return nil }
-            return (String(parts[1]), data)
+            if parts.count == 2, parts[0] == "have", let id = Int(parts[1]) {
+                present.insert(id)
+            } else if parts.count == 3, let id = Int(parts[0]), let data = Data(hex: String(parts[2])) {
+                rows.append((id, String(parts[1]), data))
+            }
         }
-        return (maxID, rows)
+        return (maxID, rows, present)
     }
 }
 

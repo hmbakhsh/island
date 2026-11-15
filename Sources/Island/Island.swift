@@ -15,7 +15,8 @@ final class IslandPanel: NSPanel {
 }
 
 /// Owns the panel and decides what it shows: the Spotify player on request,
-/// otherwise queued messages one at a time.
+/// otherwise queued messages one at a time. Mirrored notifications from one
+/// app share a banner (see MessageStack).
 final class Island: NSObject, NSApplicationDelegate {
     let player = Player()
     let history = History()
@@ -26,7 +27,8 @@ final class Island: NSObject, NSApplicationDelegate {
     let codes = EmailCodes()
     let state = IslandState()
     let panel: IslandPanel
-    private var queue: [Message] = []
+    /// Banners waiting their turn: single messages, or a stack per mirrored app.
+    private var queue: [Content] = []
     /// From the start of opening until the panel is ordered out.
     private var busy = false
     /// A panel asked for while a message was up; shown once it has gone.
@@ -34,6 +36,8 @@ final class Island: NSObject, NSApplicationDelegate {
     private var outsideClickMonitor: Any?
     private var closedByOutsideClickAt = Date.distantPast
     private var dismissTimer: DispatchWorkItem?
+    private var expandTimer: DispatchWorkItem?
+    private var bannerHovered = false
     private var hoverTimer: Timer?
     private var hoverSince: Date?
     private var hoverLeftAt: Date?
@@ -79,7 +83,9 @@ final class Island: NSObject, NSApplicationDelegate {
             onOpenAgent: { [weak self] id in
                 T3.open(thread: id)
                 self?.close()
-            }))
+            },
+            onOpenStackGroup: { [weak self] key in self?.openStackGroup(key) },
+            onClearStack: { [weak self] in self?.close() }))
         // The island sizes the window itself; don't let SwiftUI resize it too.
         host.sizingOptions = []
         panel.contentView = host
@@ -104,7 +110,7 @@ final class Island: NSObject, NSApplicationDelegate {
             self?.deliver(message)
         }
         center.addObserver(forName: dismissName, object: nil, queue: .main) { [weak self] _ in
-            guard let self, case .message = self.state.content else { return }
+            guard let self, self.bannerUp else { return }
             self.close()
         }
         watcher.onNew = { [weak self] thread in self?.deliver(thread.message) }
@@ -114,6 +120,14 @@ final class Island: NSObject, NSApplicationDelegate {
         }
         watcher.start()
         mirror.onMessage = { [weak self] message in self?.deliver(message) }
+        mirror.tracked = { [weak self] in self?.heldMirrorIDs ?? [] }
+        mirror.onRemoved = { [weak self] ids in self?.mirroredRemoved(ids) }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if let id = app?.bundleIdentifier { self?.appActivated(id) }
+        }
         codes.onCode = { [weak self] message in self?.deliver(message) }
         mirror.start()
         devices.onConnect = { [weak self] device in
@@ -238,7 +252,7 @@ final class Island: NSObject, NSApplicationDelegate {
         case .calendar: return .calendar
         case .agents: return .agents
         case .home: return .home
-        case .message: return nil
+        case .message, .stack: return nil
         }
     }
 
@@ -360,8 +374,12 @@ final class Island: NSObject, NSApplicationDelegate {
             Trigger.captureNumbers { [weak self] n in self?.pressNumber(n) }
             return
         }
-        guard case .message = state.content, state.open else {
+        guard bannerUp else {
             toggle(.home)
+            return
+        }
+        if case .stack(let stack) = state.content {
+            capsOnStack(stack)
             return
         }
         if state.armed {
@@ -374,6 +392,42 @@ final class Island: NSObject, NSApplicationDelegate {
             if key == .open { self?.tapMessage() }
         }
         // Pinned, but not forever if it's ignored.
+        scheduleDismiss(after: 30)
+    }
+
+    /// Caps on a stack lists it and hands it the keyboard: ↑ ↓ pick a
+    /// conversation, ⏎ (or Caps again) opens it, Esc dismisses. A stack of one
+    /// arms like any banner.
+    private func capsOnStack(_ stack: MessageStack) {
+        if state.armed {
+            if stack.expanded, let id = state.selected { openStackGroup(id) } else { tapMessage() }
+            return
+        }
+        expandTimer?.cancel()
+        var stack = stack
+        stack.expanded = stack.count > 1
+        state.selected = stack.expanded ? stack.groups.first?.id : nil
+        withAnimation(.easeOut(duration: 0.15)) { state.armed = true }
+        morph(to: .stack(stack), animation: stackSpring)
+        Trigger.captureEscape { [weak self] in self?.close() }
+        Trigger.captureList { [weak self] key in self?.pressStackKey(key) }
+        scheduleDismiss(after: 30)
+    }
+
+    private func pressStackKey(_ key: Trigger.ListKey) {
+        guard state.open, case .stack(let stack) = state.content else { return }
+        guard stack.expanded else {
+            if key == .open { tapMessage() }
+            return
+        }
+        let order = stack.groups.prefix(StackLayout.maxRows).map(\.id)
+        let index = state.selected.flatMap { order.firstIndex(of: $0) }
+        switch key {
+        case .up: state.selected = order[max((index ?? 0) - 1, 0)]
+        case .down: state.selected = order[min((index ?? -1) + 1, order.count - 1)]
+        case .open: openStackGroup(state.selected ?? order[0])
+        }
+        // Moving around counts as attention: don't vanish mid-choice.
         scheduleDismiss(after: 30)
     }
 
@@ -522,22 +576,68 @@ final class Island: NSObject, NSApplicationDelegate {
 
     // MARK: Messages
 
+    private var bannerUp: Bool {
+        guard state.open else { return false }
+        switch state.content {
+        case .message, .stack: return true
+        default: return false
+        }
+    }
+
     private func deliver(_ message: Message) {
         history.add(message)
         updateBar()
-        // A burst from one app becomes a single "3 new Slack messages" banner.
-        if let app = message.mirroredFrom,
-           let i = queue.firstIndex(where: { $0.mirroredFrom == app }) {
-            let count = (queue[i].mergedCount ?? 1) + 1
-            var merged = message
-            merged.mergedCount = count
-            merged.body = [message.title, message.body].compactMap { $0 }.joined(separator: ": ")
-            merged.title = "\(count) new messages"
-            queue[i] = merged
+        guard let app = message.mirroredFrom else {
+            queue.append(.message(message))
+            showNext()
+            return
+        }
+        // Already looking at the app: the inbox has it, no banner.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app { return }
+
+        // Same app's banner is up: the message joins it instead of waiting.
+        if state.open, case .stack(var stack) = state.content, stack.app == app {
+            stack.add(message)
+            morph(to: .stack(stack), animation: stackSpring)
+            // Keep it up while messages flow, unless others are waiting.
+            if !bannerHovered, !state.armed, queue.isEmpty { scheduleDismiss(after: Config.shared.banner) }
+            return
+        }
+        if let i = queue.firstIndex(where: { if case .stack(let s) = $0 { s.app == app } else { false } }),
+           case .stack(var stack) = queue[i] {
+            stack.add(message)
+            queue[i] = .stack(stack)
         } else {
-            queue.append(message)
+            queue.append(.stack(MessageStack(app: app, first: message)))
         }
         showNext()
+    }
+
+    /// Notification rows held in banners, so the mirror can say when one is cleared.
+    private var heldMirrorIDs: [Int] {
+        var stacks = queue.compactMap { if case .stack(let s) = $0 { s } else { nil } }
+        if state.open, case .stack(let s) = state.content { stacks.append(s) }
+        return stacks.flatMap(\.mirrorIDs)
+    }
+
+    /// Notifications cleared in macOS (read in Slack, here or elsewhere) leave their banner.
+    private func mirroredRemoved(_ ids: Set<Int>) {
+        let gone: (MessageStack.Item) -> Bool = { $0.message.mirrorID.map(ids.contains) ?? false }
+        queue = queue.compactMap { content in
+            guard case .stack(var s) = content else { return content }
+            s.remove(where: gone)
+            return s.count == 0 ? nil : .stack(s)
+        }
+        if state.open, case .stack(var s) = state.content {
+            s.remove(where: gone)
+            if s.count == 0 { close() } else { morph(to: .stack(s), animation: stackSpring) }
+        }
+    }
+
+    /// Switched to a mirrored app: its banners are old news.
+    private func appActivated(_ app: String) {
+        queue.removeAll { if case .stack(let s) = $0 { s.app == app } else { false } }
+        if state.open, case .stack(let s) = state.content, s.app == app { close() }
     }
 
     /// Publishes counts for status bars: writes status.json next to the
@@ -560,9 +660,16 @@ final class Island: NSObject, NSApplicationDelegate {
 
     private func showNext() {
         guard !busy, !queue.isEmpty else { return }
-        let message = queue.removeFirst()
+        let content = queue.removeFirst()
+        let message: Message
+        switch content {
+        case .stack(let s): message = s.latest.message
+        case .message(let m): message = m
+        default: return
+        }
         if let sound = message.sound { NSSound(named: sound == "default" ? "Glass" : sound)?.play() }
-        present(.message(message))
+        bannerHovered = false
+        present(content)
         scheduleDismiss(after: message.seconds ?? Config.shared.banner)
     }
 
@@ -575,18 +682,56 @@ final class Island: NSObject, NSApplicationDelegate {
     }
 
     private func hoverMessage(_ inside: Bool) {
-        guard case .message(let message) = state.content, state.open else { return }
+        guard bannerUp else { return }
+        bannerHovered = inside
+        expandTimer?.cancel()
+        if case .stack(var stack) = state.content {
+            if inside, stack.count > 1, !stack.expanded {
+                // Resting on a stack lists it by conversation.
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self, self.bannerHovered, self.state.open,
+                          case .stack(var current) = self.state.content else { return }
+                    current.expanded = true
+                    self.morph(to: .stack(current), animation: stackSpring)
+                }
+                expandTimer = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + StackLayout.expandDelay, execute: work)
+            } else if !inside, stack.expanded, !state.armed {
+                stack.expanded = false
+                morph(to: .stack(stack), animation: stackSpring)
+            }
+        }
         if inside {
             dismissTimer?.cancel()
-        } else if message.seconds != 0, !state.armed {
+        } else if case .message(let message) = state.content, message.seconds == 0 {
+            // Sticky: stays until clicked.
+        } else if !state.armed {
             scheduleDismiss(after: 2)
         }
     }
 
     private func tapMessage() {
-        guard case .message(let message) = state.content, state.open else { return }
-        message.perform()
+        guard bannerUp else { return }
+        switch state.content {
+        case .message(let message): message.perform()
+        // Listed: a tap between rows does nothing; the rows open themselves.
+        case .stack(let stack) where stack.expanded: return
+        case .stack(let stack): stack.latest.message.perform()
+        default: break
+        }
         close()
+    }
+
+    /// A conversation picked from a listed stack: open it and drop it from the stack.
+    private func openStackGroup(_ key: String) {
+        guard state.open, case .stack(var stack) = state.content,
+              let group = stack.groups.first(where: { $0.id == key }) else { return }
+        group.latest.message.perform()
+        stack.remove { MessageStack.conversation($0.message) == key }
+        if stack.count == 0 { close(); return }
+        if state.armed, stack.count > 1 { stack.expanded = true }
+        if state.selected == key { state.selected = stack.expanded ? stack.groups.first?.id : nil }
+        morph(to: .stack(stack), animation: stackSpring)
     }
 
     // MARK: Panel
@@ -608,8 +753,9 @@ final class Island: NSObject, NSApplicationDelegate {
         state.armed = false
         // Esc closes panels and the overview. Banners leave it alone: they
         // appear while you're typing, and Esc belongs to that app.
-        if case .message = content {} else {
-            Trigger.captureEscape { [weak self] in self?.close() }
+        switch content {
+        case .message, .stack: break
+        default: Trigger.captureEscape { [weak self] in self?.close() }
         }
         state.open = false
         state.showContent = false
@@ -619,15 +765,18 @@ final class Island: NSObject, NSApplicationDelegate {
     }
 
     /// Grows (or shrinks) the open island into other content without closing.
-    private func morph(to content: Content) {
+    private func morph(
+        to content: Content, animation: Animation = .spring(response: 0.34 * slowmo, dampingFraction: 0.86)
+    ) {
         releaseNumbers()
         // Grow the window first (it's transparent), shrink it only once the
         // shape has finished, so the window edge never cuts the animation.
         setFrame(contentHeight: max(content.height, state.content.height))
-        withAnimation(.spring(response: 0.34 * slowmo, dampingFraction: 0.86)) { state.content = content }
+        withAnimation(animation) { state.content = content }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 * slowmo) { [weak self] in
+            // Whatever is showing by then: a stack may have changed again.
             guard let self, self.state.open, self.state.content.key == content.key else { return }
-            self.setFrame(contentHeight: content.height)
+            self.setFrame(contentHeight: self.state.content.height)
         }
     }
 
@@ -650,6 +799,8 @@ final class Island: NSObject, NSApplicationDelegate {
         guard state.open else { return }
         releaseNumbers()
         state.armed = false
+        expandTimer?.cancel()
+        bannerHovered = false
         Trigger.captureEscape(nil)
         Trigger.captureList(nil)
         dismissTimer?.cancel()
