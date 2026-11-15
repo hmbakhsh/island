@@ -20,11 +20,11 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Tile(icon: "sparkles", label: "Agents", key: keyboard ? 1 : nil) { open(.agents) } content: {
-                    agents
-                }
-                Tile(icon: "calendar", label: nextEvent?.isNow == true ? "Now" : "Next", key: keyboard ? 2 : nil) { open(.calendar) } content: {
+                Tile(icon: "calendar", label: nextEvent?.isNow == true ? "Now" : "Next", key: keyboard ? 1 : nil) { open(.calendar) } content: {
                     calendar
+                }
+                Tile(icon: "bell.fill", label: "Notifications", key: keyboard ? 2 : nil) { open(.inbox) } content: {
+                    notifications
                 }
             }
             HStack(spacing: 8) {
@@ -34,8 +34,8 @@ struct HomeView: View {
                 ) { open(.player) } content: {
                     spotify
                 }
-                Tile(icon: "bell.fill", label: "Notifications", key: keyboard ? 4 : nil) { open(.inbox) } content: {
-                    notifications
+                Tile(icon: "sparkles", label: "Agents", key: keyboard ? 4 : nil) { open(.agents) } content: {
+                    agents
                 }
             }
         }
