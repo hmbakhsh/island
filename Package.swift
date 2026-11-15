@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "notch-island",
+    name: "island",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(name: "Island", path: "Sources/Island")

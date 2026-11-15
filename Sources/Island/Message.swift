@@ -141,7 +141,7 @@ enum Notify {
         var i = 0
 
         func fail(_ text: String) -> Never {
-            FileHandle.standardError.write(Data("notch: \(text)\n".utf8))
+            FileHandle.standardError.write(Data("island: \(text)\n".utf8))
             exit(64)
         }
         func value() -> String {
