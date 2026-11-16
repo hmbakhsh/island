@@ -196,6 +196,9 @@ struct Config: Codable {
     var notificationRows: Int?
     /// Verification codes from Gmail as banners (default on when the Composio CLI is set up).
     var emailCodes: Bool?
+    /// While something is full screen: no wings, no "done" banners, other
+    /// banners small and silent (default on).
+    var quietInFullScreen: Bool?
 
     var banner: Double { bannerSeconds ?? 8 }
     var meetingLead: Int { meetingLeadMinutes ?? 2 }

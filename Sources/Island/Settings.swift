@@ -158,6 +158,7 @@ struct SettingsView: View {
                 }
                 Toggle("When T3 agents finish or need you", isOn: model.binding(\.t3Banners, true))
                 Toggle("When headphones connect", isOn: model.binding(\.deviceAlerts, true))
+                Toggle("Quiet while something is full screen", isOn: model.binding(\.quietInFullScreen, true))
                 if EmailCodes.available {
                     Toggle("Verification codes from Gmail", isOn: model.binding(\.emailCodes, true))
                 }
