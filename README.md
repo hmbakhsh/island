@@ -72,6 +72,12 @@ or an audio file to play one anyway, or
 `"deviceAlerts": false` to turn it off. `island --preview-device "AirPods Pro"`
 shows it without connecting anything.
 
+**Full screen.** While a video (or anything else) is full screen, Island keeps
+out of the way: nothing sits beside the notch, "done" banners are skipped
+(they're still in the notifications list), and other banners shrink to one
+silent line that goes after 5 seconds. Verification codes still show in full.
+Turn it off with `"quietInFullScreen": false` or in settings.
+
 **Notifications.** Everything that reached the island, grouped: a section per
 mirrored app (Slack) with one row per channel or DM from the last day, showing
 the latest message and how many came in, then everything else. Click a row to

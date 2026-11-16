@@ -25,6 +25,7 @@ final class Island: NSObject, NSApplicationDelegate {
     let mirror = NotificationMirror(apps: Config.shared.mirrorNotifications ?? [])
     let devices = DeviceWatcher()
     let codes = EmailCodes()
+    let fullScreen = FullScreenWatcher()
     let state = IslandState()
     let panel: IslandPanel
     /// Banners waiting their turn: single messages, or a stack per mirrored app.
@@ -119,6 +120,8 @@ final class Island: NSObject, NSApplicationDelegate {
             self?.updateLive()
         }
         watcher.start()
+        fullScreen.onChange = { [weak self] in self?.updateLive() }
+        fullScreen.start()
         mirror.onMessage = { [weak self] message in self?.deliver(message) }
         mirror.tracked = { [weak self] in self?.heldMirrorIDs ?? [] }
         mirror.onRemoved = { [weak self] ids in self?.mirroredRemoved(ids) }
@@ -513,7 +516,8 @@ final class Island: NSObject, NSApplicationDelegate {
     /// The visible island, without the panel's shadow margin.
     private var islandFrame: NSRect {
         let height = state.notch.height + state.content.height
-        return NSRect(x: panel.frame.midX - islandWidth / 2, y: panel.frame.maxY - height, width: islandWidth, height: height + 1)
+        let width = state.content.width
+        return NSRect(x: panel.frame.midX - width / 2, y: panel.frame.maxY - height, width: width, height: height + 1)
     }
 
     private func watchOutsideClicks() {
@@ -594,6 +598,22 @@ final class Island: NSObject, NSApplicationDelegate {
     private func deliver(_ message: Message) {
         history.add(message)
         updateBar()
+        // Watching something: codes still show in full, "done" not at all,
+        // anything else as one small, silent line (only the latest waits).
+        if fullScreen.active, message.copies != true {
+            guard message.icon != "checkmark.circle.fill",
+                  message.mirroredFrom == nil
+                  || NSWorkspace.shared.frontmostApplication?.bundleIdentifier != message.mirroredFrom
+            else { return }
+            var m = message
+            m.quiet = true
+            m.sound = nil
+            m.seconds = min(m.seconds.flatMap { $0 > 0 ? $0 : nil } ?? 5, 5)
+            queue.removeAll { if case .message(let q) = $0 { q.quiet == true } else { false } }
+            queue.append(.message(m))
+            showNext()
+            return
+        }
         guard let app = message.mirroredFrom else {
             queue.append(.message(message))
             showNext()
@@ -839,9 +859,11 @@ final class Island: NSObject, NSApplicationDelegate {
     private func updateLive() {
         let needs = watcher.waiting.filter { $0.needsInput || $0.reason == "failed" }.count
         let done = watcher.waiting.count - needs
-        let counts = watcher.running.isEmpty && watcher.waiting.isEmpty
+        // Watching something full screen: nothing beside the notch.
+        let quiet = fullScreen.active
+        let counts = quiet || watcher.running.isEmpty && watcher.waiting.isEmpty
             ? nil : LiveCounts(running: watcher.running.count, needs: needs, done: done)
-        let music = player.playing
+        let music = !quiet && player.playing
         guard counts != state.live || music != state.music else { return }
         let appearing = !wingsVisible
         if !busy, appearing, counts != nil || music { showLive() }

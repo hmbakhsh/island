@@ -28,6 +28,7 @@ enum Content {
         switch self {
         case .player: return 168
         case .message(let m):
+            if m.quiet == true { return QuietLayout.height }
             if m.countdown != nil { return 70 }
             if m.copies == true { return 60 }
             if m.plain == true { return m.body == nil ? 42 : 56 }
@@ -36,6 +37,11 @@ enum Content {
         case .inbox(let height), .calendar(let height), .agents(let height): return height
         case .home: return HomeLayout.height
         }
+    }
+
+    var width: CGFloat {
+        if case .message(let m) = self, m.quiet == true { return QuietLayout.width }
+        return islandWidth
     }
 
     /// Cards to show peeking under the banner.
@@ -71,6 +77,12 @@ final class IslandState: ObservableObject {
 }
 
 let islandWidth: CGFloat = 380
+
+/// The small banner shown while something is full screen.
+enum QuietLayout {
+    static let width: CGFloat = 300
+    static let height: CGFloat = 28
+}
 let shadowRoom: CGFloat = 24
 
 struct IslandView: View {
@@ -90,11 +102,12 @@ struct IslandView: View {
     let onClearStack: () -> Void
 
     var body: some View {
-        let radius: CGFloat = state.open ? 30 : 10
+        let quiet = state.content.width < islandWidth
+        let radius: CGFloat = state.open ? quiet ? 16 : 30 : 10
         let shape = UnevenRoundedRectangle(
             bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
         let compact = !state.open && (state.live != nil || state.device != nil || state.music)
-        let width = state.open ? islandWidth : compact ? state.liveWidth : state.notch.width
+        let width = state.open ? state.content.width : compact ? state.liveWidth : state.notch.width
         let height = state.open ? state.notch.height + state.content.height
             : compact ? state.liveHeight : state.notch.height
         ZStack(alignment: .top) {
@@ -103,12 +116,12 @@ struct IslandView: View {
                 .fill(Color.black)
                 .overlay(FrontEdge(radius: radius, shown: state.open && state.content.peeks > 0))
                 .frame(width: width, height: height)
-                .shadow(color: .black.opacity(state.open ? 0.45 : 0), radius: 14, y: 6)
+                .shadow(color: .black.opacity(state.open ? quiet ? 0.2 : 0.45 : 0), radius: 14, y: 6)
             // Content is clipped to the shape, so the island reveals it as it
             // grows and old/new content cross-fade inside it when it changes.
             ZStack(alignment: .top) {
                 content
-                    .frame(width: islandWidth, height: state.content.height)
+                    .frame(width: state.content.width, height: state.content.height)
                     .padding(.top, state.notch.height)
                     .id(state.content.key)
                     // Old content leaves quickly so the two barely overlap.
@@ -178,7 +191,9 @@ struct MessageView: View {
     var armed = false
 
     var body: some View {
-        if message.copies == true, let code = message.pill {
+        if message.quiet == true {
+            quietBody
+        } else if message.copies == true, let code = message.pill {
             codeBody(code)
         } else if let repo = message.repo {
             agentBody(repo: repo)
@@ -225,6 +240,33 @@ struct MessageView: View {
         .padding(.horizontal, 22)
         .padding(.top, 2)
         .padding(.bottom, 10)
+    }
+
+    /// While something is full screen: a small icon, the title, and the body
+    /// dimmed after it, on one line.
+    private var quietBody: some View {
+        HStack(spacing: 7) {
+            if message.picture != nil {
+                MessageIcon(message: message, size: 16)
+            } else if message.plain != true || message.icon != nil {
+                Image(systemName: message.icon ?? "bell.fill")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(message.tint)
+            }
+            Text(message.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .layoutPriority(1)
+            if let body = message.body?.split(separator: "\n").first {
+                Text(body)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 
     /// A verification code, AutoFill-style: the code centred, "From Fountain" under it.

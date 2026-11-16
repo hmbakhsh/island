@@ -52,6 +52,8 @@ struct Message: Codable {
     var account: String?
     /// For an agent: its git repo's name, "" when it isn't in one.
     var repo: String?
+    /// Shown while something is full screen: one small line, no sound.
+    var quiet: Bool?
 
     var tint: Color {
         let named: [String: Color] = [
