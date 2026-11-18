@@ -302,6 +302,8 @@ just hero                         # re-render the README hero from docs/hero/her
 | `ISLAND_GROK_DIR` | Grok Bot state folder to watch |
 | `ISLAND_HELIUM_DIR` | Helium data folder (profiles and sessions) |
 
+`island --send chatgpt|t3:ROOT|grok:ID TEXT` sends as the command bar would, without opening it.
+
 `swift test` runs the command bar's state machine, the Grok roster watcher and
 the Helium profile matching against fixtures.
 

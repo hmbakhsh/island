@@ -20,6 +20,7 @@ let usage = """
            island --agents                                  open/close the live list of T3 agents
            island --settings                                open the settings window
            island --composer                                open/close the command bar (Caps Lock then A)
+           island --send chatgpt|t3:ROOT|grok:ID TEXT       send as the command bar would, without opening it
            island --preview-device "AirPods Pro"            preview the headphones-connected animation
            island --replay-notification                     show the latest mirrored (e.g. Slack) notification again
            island --version                                 print the installed version

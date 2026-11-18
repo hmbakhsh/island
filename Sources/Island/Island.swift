@@ -170,6 +170,12 @@ final class Island: NSObject, NSApplicationDelegate {
         center.addObserver(forName: composerName, object: nil, queue: .main) { [weak self] _ in
             self?.toggle(.composer)
         }
+        center.addObserver(forName: composerSendName, object: nil, queue: .main) { [weak self] note in
+            guard let json = (note.userInfo?["json"] as? String).flatMap({ try? JSONSerialization.jsonObject(with: Data($0.utf8)) }) as? [String: String],
+                  let target = json["target"].flatMap(Target.init(stored:)), let text = json["text"], !text.isEmpty
+            else { return }
+            self?.send(text, to: target)
+        }
         composer.onEffects = { [weak self] effects in self?.composerDid(effects) }
         composer.onResize = { [weak self] in self?.resizeComposer() }
         pollGrok()

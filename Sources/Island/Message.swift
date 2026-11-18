@@ -1,4 +1,5 @@
 import AppKit
+import IslandCore
 import SwiftUI
 
 let spotifyToggleName = Notification.Name("dev.notchisland.spotify")
@@ -16,6 +17,7 @@ let devicePreviewName = Notification.Name("dev.notchisland.device-preview")
 let mirrorReplayName = Notification.Name("dev.notchisland.mirror-replay")
 let settingsName = Notification.Name("dev.notchisland.settings")
 let composerName = Notification.Name("dev.notchisland.composer")
+let composerSendName = Notification.Name("dev.notchisland.composer-send")
 
 struct Message: Codable {
     var title = ""
@@ -202,6 +204,14 @@ enum Notify {
                 exit(0)
             case "--composer":
                 Agent.post(composerName)
+                exit(0)
+            case "--send":
+                // Sends as the command bar would, without opening it: --send chatgpt|t3:<root>|grok:<id> TEXT
+                let target = value()
+                let text = value()
+                guard Target(stored: target) != nil else { fail("--send takes chatgpt, t3:<root> or grok:<id>") }
+                let json = try! JSONSerialization.data(withJSONObject: ["target": target, "text": text])
+                Agent.post(composerSendName, json: String(decoding: json, as: UTF8.self))
                 exit(0)
             case "--replay-notification":
                 Agent.post(mirrorReplayName)
