@@ -128,10 +128,17 @@ public struct Composer {
     /// The hotkey: the bar, empty, aimed at where you last sent.
     public mutating func open() {
         mode = .bar
-        target = lastTarget ?? target
+        target = lastTarget ?? bots.first.map { .grok($0.id) } ?? .chatgpt
         text = ""
         query = ""
         selection = 0
+    }
+
+    /// Closed from outside the keys: a click elsewhere, another panel.
+    public mutating func close() {
+        mode = .closed
+        text = ""
+        query = ""
     }
 
     /// What the field shows when it's empty.

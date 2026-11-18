@@ -37,6 +37,13 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(composer().target, .grok("main-id"))
     }
 
+    func testOpensOnTheMainBotWhenBotsLoadAfterLaunch() {
+        var c = Composer(bots: [], projects: [], lastTarget: nil)
+        c.bots = [main]
+        c.open()
+        XCTAssertEqual(c.target, .grok("main-id"))
+    }
+
     func testOpensOnChatGPTWithNoBotsAndNoLastTarget() {
         XCTAssertEqual(composer(bots: []).target, .chatgpt)
     }

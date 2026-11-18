@@ -126,7 +126,7 @@ public final class GrokWatch {
     }
 
     /// "onqw4zbo….blob" → "sand.client…". Lowercase RFC 4648 base32, no padding.
-    static func key(ofFile name: String) -> String? {
+    public static func key(ofFile name: String) -> String? {
         let stem = name.hasSuffix(".blob") ? String(name.dropLast(5)) : name
         let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
         var bits = 0, value = 0
