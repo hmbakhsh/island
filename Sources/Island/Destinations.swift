@@ -112,14 +112,21 @@ struct GrokDestination: Destination {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else {
             throw SendError("Grok Bot isn't running")
         }
-        // Selects the bot without raising the app.
-        let open = Process()
-        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        open.arguments = ["-g", "grokbot://app/v1/agent?id=\(agent)"]
-        try open.run()
-        open.waitUntilExit()
-        guard Self.waitFor({ GrokSelection.current() == agent }, seconds: 4) else {
-            throw SendError("Grok Bot didn't switch to \(name)")
+        // Selects the bot. Grok Bot comes forward when it handles the link,
+        // even with -g, so the app you were in gets the keyboard back after.
+        // Already on that bot: no link, so Grok Bot isn't raised at all.
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if GrokSelection.current() != agent {
+            let open = Process()
+            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            open.arguments = ["-g", "grokbot://app/v1/agent?id=\(agent)"]
+            try open.run()
+            open.waitUntilExit()
+            guard Self.waitFor({ GrokSelection.current() == agent }, seconds: 4) else {
+                Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier)
+                throw SendError("Grok Bot didn't switch to \(name)")
+            }
+            Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier, within: 2)
         }
 
         let ax = AXUIElementCreateApplication(app.processIdentifier)
@@ -136,15 +143,33 @@ struct GrokDestination: Destination {
         guard AXUIElementSetAttributeValue(prompt, "AXValue" as CFString, text as CFString) == .success else {
             throw SendError("Couldn't type into Grok Bot")
         }
-        var button: AXUIElement?
-        _ = Self.waitFor({
-            button = Self.find(in: ax) { role($0) == "AXButton" && description($0).lowercased().hasPrefix("send") }
-            return button != nil
-        }, seconds: 2)
-        guard let button, AXUIElementPerformAction(button, "AXPress" as CFString) == .success else {
-            throw SendError("Grok Bot's Send button didn't appear")
+        // The Send button only works once Grok has taken the text in. Press,
+        // then check the box cleared; press again if it didn't.
+        // Grok keeps more than one "Prompt" box in its tree and redraws them
+        // after sending: sent means none of them still holds the message.
+        let boxEmpty = {
+            var holding = false
+            _ = Self.find(in: ax) {
+                if role($0) == "AXTextArea", description($0) == "Prompt", string($0, kAXValueAttribute) == text { holding = true }
+                return false
+            }
+            return !holding
+        }
+        var sent = false
+        for _ in 0..<4 where !sent {
+            usleep(600_000)
+            if boxEmpty() { sent = true; break }
+            guard let button = Self.find(in: ax, { role($0) == "AXButton" && description($0).lowercased().hasPrefix("send") })
+            else { continue }
+            AXUIElementPerformAction(button, "AXPress" as CFString)
+            sent = Self.waitFor(boxEmpty, seconds: 1.5)
+        }
+        guard sent else {
+            Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier)
+            throw SendError("Grok Bot didn't take the message; it's left in its box")
         }
         log("grok: sent to \(agent)")
+        Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier, within: 2)
     }
 
     static func waitFor(_ check: () -> Bool, seconds: Double) -> Bool {
@@ -219,6 +244,7 @@ struct ChatGPTDestination: Destination {
         let previous = window.value(forKey: "activeTabIndex") as? Int
         let tabs = window.value(forKey: "tabs") as! SBElementArray
         let before = Set(Helium.ids(tabs))
+        let frontmost = NSWorkspace.shared.frontmostApplication
         guard let tabClass: AnyObject = app.class(forScriptingClass: "tab"),
               let raw = tabClass.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
               let tab = raw.perform(NSSelectorFromString("initWithProperties:"), with: ["URL": "https://chatgpt.com/?q=\(q)"])?
@@ -232,19 +258,31 @@ struct ChatGPTDestination: Destination {
             id = Helium.ids(tabs).first { !before.contains($0) }
             return id != nil
         }, seconds: 3)
-        if let previous { window.setValue(previous, forKey: "activeTabIndex") }
+        // Adding a tab over Apple Events selects it and brings Helium forward:
+        // put both back. ChatGPT does the same again once the message sends.
+        let restore = {
+            if let previous, window.value(forKey: "activeTabIndex") as? Int != previous {
+                window.setValue(previous, forKey: "activeTabIndex")
+            }
+            Focus.giveBack(to: frontmost, ifRaised: pid)
+        }
+        restore()
         guard let id, let chat = Helium.tab(id, in: app) else { throw SendError("Helium didn't open the tab") }
 
-        // ?q= fills the box but doesn't send: press its send button.
+        // ?q= fills the box but doesn't send: press its send button. A click
+        // before the page has hydrated does nothing, so keep pressing until
+        // the page moves to the new chat (/c/<id>).
         let click = """
-            (() => { const b = document.querySelector('form button[type=submit]');
-              if (!b) return 'wait'; if (b.disabled) return 'disabled'; b.click(); return 'sent' })()
+            (() => { if (location.pathname.startsWith('/c/')) return 'sent';
+              const b = document.querySelector('form button[type=submit]');
+              if (!b) return 'wait'; if (b.disabled) return 'disabled'; b.click(); return 'clicked' })()
             """
         var result: String?
         let sent = GrokDestination.waitFor({
             result = Helium.run(click, in: chat)
+            if result != "sent" { usleep(700_000) }
             return result == "sent"
-        }, seconds: 20)
+        }, seconds: 30)
         guard sent else {
             if result == nil {
                 throw SendError("Turn on View › Developer › Allow JavaScript from Apple Events in Helium (\(profileName))")
@@ -252,7 +290,29 @@ struct ChatGPTDestination: Destination {
             throw SendError("ChatGPT's send button didn't appear (\(result!))")
         }
         log("chatgpt: sent in tab \(id)")
+        usleep(800_000)
+        restore()
         onSent?(pid, id)
+    }
+}
+
+/// Gives the keyboard back to the app you were in after another app pushed
+/// itself forward. macOS only lets the active app pass activation on, so
+/// Island activates for a moment and yields.
+enum Focus {
+    static func giveBack(to app: NSRunningApplication?, ifRaised pid: pid_t, within seconds: Double = 1) {
+        guard let app, app.processIdentifier != pid else { return }
+        let raised = GrokDestination.waitFor({
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        }, seconds: seconds)
+        guard raised else { return }
+        DispatchQueue.main.sync { NSApp.activate(ignoringOtherApps: true) }
+        usleep(150_000)
+        DispatchQueue.main.sync {
+            NSApp.yieldActivation(to: app)
+            app.activate()
+        }
+        log("focus: gave the keyboard back to \(app.bundleIdentifier ?? "?")")
     }
 }
 
