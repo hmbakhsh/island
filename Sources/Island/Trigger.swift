@@ -123,14 +123,15 @@ enum Trigger {
         RegisterEventHotKey(UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &escapeKey)
     }
 
-    /// Captures 1–4 and "," (settings) everywhere while the island is open
-    /// from the keyboard, and gives them back as soon as it closes.
+    /// Captures 1–4, "," (settings) and A (the command bar) everywhere
+    /// while the island is open from the keyboard, and gives them back as
+    /// soon as it closes.
     static func captureNumbers(_ handler: ((Int) -> Void)?) {
         numberKeys.forEach { UnregisterEventHotKey($0) }
         numberKeys = []
         numberAction = handler
         guard handler != nil else { return }
-        for (n, key) in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_Comma].enumerated() {
+        for (n, key) in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_Comma, kVK_ANSI_A].enumerated() {
             var ref: EventHotKeyRef?
             let id = EventHotKeyID(signature: signature, id: UInt32(11 + n))
             if RegisterEventHotKey(UInt32(key), 0, id, GetApplicationEventTarget(), 0, &ref) == noErr, let ref {

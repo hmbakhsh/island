@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import IslandCore
 import SwiftUI
 
 let slowmo = Double(ProcessInfo.processInfo.environment["ISLAND_SLOWMO"] ?? "") ?? 1
@@ -11,6 +12,9 @@ final class FirstClickHost<Content: View>: NSHostingView<Content> {
 /// Borderless windows are normally kept below the menu bar; the island has
 /// to sit in it, over the notch.
 final class IslandPanel: NSPanel {
+    /// Only the command bar takes the keyboard; the panel never activates Island.
+    var takesKeyboard = false
+    override var canBecomeKey: Bool { takesKeyboard }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
@@ -27,6 +31,10 @@ final class Island: NSObject, NSApplicationDelegate {
     let codes = EmailCodes()
     let fullScreen = FullScreenWatcher()
     let state = IslandState()
+    let composer = ComposerModel()
+    let grok = GrokWatch()
+    private let grokQueue = DispatchQueue(label: "island.grok")
+    private var grokTimer: Timer?
     let panel: IslandPanel
     /// Banners waiting their turn: single messages, or a stack per mirrored app.
     private var queue: [Content] = []
@@ -49,7 +57,9 @@ final class Island: NSObject, NSApplicationDelegate {
     private var meetingTimer: Timer?
     /// Meetings already announced, so each gets one reminder.
     private var remindedMeetings = Set<String>()
-    private lazy var settings = SettingsWindow(agenda: agenda) { [weak self] in self?.applyConfig() }
+    private lazy var settings = SettingsWindow(
+        agenda: agenda, grokBots: { [weak self] in self?.composer.grokBots ?? [] }
+    ) { [weak self] in self?.applyConfig() }
     private var capsInstalled = false
     private var updateTimer: Timer?
     private var updating = false
@@ -65,7 +75,7 @@ final class Island: NSObject, NSApplicationDelegate {
         panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         let host = FirstClickHost(rootView: IslandView(
-            state: state, player: player, history: history, watcher: watcher, agenda: agenda,
+            state: state, player: player, history: history, watcher: watcher, agenda: agenda, composer: composer,
             onMessageTap: { [weak self] in self?.tapMessage() },
             onMessageHover: { [weak self] inside in self?.hoverMessage(inside) },
             onOpenThread: { [weak self] id in
@@ -157,6 +167,13 @@ final class Island: NSObject, NSApplicationDelegate {
         center.addObserver(forName: settingsName, object: nil, queue: .main) { [weak self] _ in
             self?.openSettings()
         }
+        center.addObserver(forName: composerName, object: nil, queue: .main) { [weak self] _ in
+            self?.toggle(.composer)
+        }
+        composer.onEffects = { [weak self] effects in self?.composerDid(effects) }
+        composer.onResize = { [weak self] in self?.resizeComposer() }
+        pollGrok()
+        grokTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.pollGrok() }
         applyConfig()
         meetingTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             self?.checkMeetings()
@@ -198,6 +215,9 @@ final class Island: NSObject, NSApplicationDelegate {
     private func applyConfig() {
         let config = Config.shared
         watcher.announces = config.t3Banners != false
+        let banners = config.grokBanners != false
+        grokQueue.async { self.grok.announces = banners }
+        updateComposerBots()
         mirror.setApps(config.mirrorNotifications ?? [])
         codes.setEnabled(config.emailCodes != false)
         if config.capsLockTrigger == true, !capsInstalled {
@@ -245,7 +265,7 @@ final class Island: NSObject, NSApplicationDelegate {
 
     // MARK: Panels opened from the bar
 
-    enum Panel { case player, inbox, calendar, agents, home }
+    enum Panel { case player, inbox, calendar, agents, home, composer }
 
     private var openPanel: Panel? {
         guard state.open else { return nil }
@@ -255,6 +275,7 @@ final class Island: NSObject, NSApplicationDelegate {
         case .calendar: return .calendar
         case .agents: return .agents
         case .home: return .home
+        case .composer: return .composer
         case .message, .stack: return nil
         }
     }
@@ -326,6 +347,11 @@ final class Island: NSObject, NSApplicationDelegate {
             state.keyboard = Config.shared.capsLockTrigger == true
             if state.keyboard { Trigger.captureNumbers { [weak self] n in self?.pressNumber(n) } }
             done(.home)
+        case .composer:
+            composer.composer.setProjects(T3Projects.load())
+            updateComposerBots()
+            composer.composer.open()
+            done(.composer(height: ComposerLayout.height(composer.composer)))
         }
     }
 
@@ -434,7 +460,7 @@ final class Island: NSObject, NSApplicationDelegate {
         scheduleDismiss(after: 30)
     }
 
-    /// 1: calendar. 2: notifications. 3: play/pause. 4: agents. ",": settings.
+    /// 1: calendar. 2: notifications. 3: play/pause. 4: agents. ",": settings. A: the command bar.
     /// Lists open with ↑ ↓ ⏎.
     private func pressNumber(_ n: Int) {
         guard case .home = state.content, state.open else { return }
@@ -449,6 +475,8 @@ final class Island: NSObject, NSApplicationDelegate {
             toggle(.agents, keyboard: true)
         case 5:
             openSettings()
+        case 6:
+            toggle(.composer)
         default:
             break
         }
@@ -769,7 +797,8 @@ final class Island: NSObject, NSApplicationDelegate {
         else { return }
         busy = true
         let notch = notchSize(of: screen)
-        let width = islandWidth + shadowRoom * 2
+        // Wide enough for the command bar, so morphing into it never clips.
+        let width = max(islandWidth, ComposerLayout.width) + shadowRoom * 2
         let height = notch.height + content.height + shadowRoom
         panel.setFrame(
             NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height),
@@ -781,7 +810,7 @@ final class Island: NSObject, NSApplicationDelegate {
         // Esc closes panels and the overview. Banners leave it alone: they
         // appear while you're typing, and Esc belongs to that app.
         switch content {
-        case .message, .stack: break
+        case .message, .stack, .composer: break
         default: Trigger.captureEscape { [weak self] in self?.close() }
         }
         state.open = false
@@ -789,6 +818,7 @@ final class Island: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
         withAnimation(.spring(response: 0.32 * slowmo, dampingFraction: 0.82)) { state.open = true }
         withAnimation(.easeOut(duration: 0.18 * slowmo).delay(0.04 * slowmo)) { state.showContent = true }
+        if case .composer = content { focusComposer() }
     }
 
     /// Grows (or shrinks) the open island into other content without closing.
@@ -800,6 +830,11 @@ final class Island: NSObject, NSApplicationDelegate {
         // shape has finished, so the window edge never cuts the animation.
         setFrame(contentHeight: max(content.height, state.content.height))
         withAnimation(animation) { state.content = content }
+        if case .composer = content {
+            // From the overview: its Esc capture would swallow the field's.
+            Trigger.captureEscape(nil)
+            focusComposer()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 * slowmo) { [weak self] in
             // Whatever is showing by then: a stack may have changed again.
             guard let self, self.state.open, self.state.content.key == content.key else { return }
@@ -824,6 +859,11 @@ final class Island: NSObject, NSApplicationDelegate {
 
     private func close() {
         guard state.open else { return }
+        let composing = if case .composer = state.content { true } else { false }
+        if composing {
+            composer.composer.close()
+            panel.takesKeyboard = false
+        }
         releaseNumbers()
         state.armed = false
         expandTimer?.cancel()
@@ -840,7 +880,9 @@ final class Island: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.32 * slowmo) { [weak self] in
             guard let self, !self.state.open else { return }
             self.busy = false
-            if self.wingsVisible { self.showLive() } else { self.panel.orderOut(nil) }
+            // Ordering out hands the keyboard back to the app you were in.
+            if composing || !self.wingsVisible { self.panel.orderOut(nil) }
+            if self.wingsVisible { self.showLive() }
             if let panel = self.requested {
                 self.requested = nil
                 self.show(panel)
@@ -944,5 +986,135 @@ final class Island: NSObject, NSApplicationDelegate {
             return CGSize(width: 200, height: 0)
         }
         return CGSize(width: screen.frame.width - left.width - right.width, height: screen.safeAreaInsets.top)
+    }
+
+    // MARK: Command bar
+
+    /// The panel takes the keyboard without activating Island, so the app
+    /// you're in stays frontmost and Hex can paste into the field.
+    private func focusComposer() {
+        if panel.isKeyWindow { return }
+        panel.takesKeyboard = true
+        panel.makeKey()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let host = self.panel.contentView else { return }
+            // Already typing: making it first responder again would select all, and the next key would replace it.
+            if let field = Self.firstField(in: host), field.currentEditor() == nil { self.panel.makeFirstResponder(field) }
+            log("composer open: key \(self.panel.isKeyWindow), Island active \(NSApp.isActive), frontmost \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")")
+        }
+    }
+
+    private static func firstField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable { return field }
+        for sub in view.subviews { if let f = firstField(in: sub) { return f } }
+        return nil
+    }
+
+    private func resizeComposer() {
+        guard state.open, case .composer = state.content else { return }
+        morph(to: .composer(height: ComposerLayout.height(composer.composer)),
+              animation: .spring(response: 0.26 * slowmo, dampingFraction: 0.9))
+    }
+
+    private func composerDid(_ effects: [Composer.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .send(let target, let text): send(text, to: target)
+            case .persistLastTarget(let target):
+                Config.shared.composerLastTarget = target.stored
+                Config.shared.save()
+            case .close: close()
+            }
+        }
+    }
+
+    /// Sends in the background; only a failure (or a ChatGPT reply) comes back as a banner.
+    private func send(_ text: String, to target: Target) {
+        let name = composer.name(of: target)
+        let destination: Destination
+        switch target {
+        case .t3(let root):
+            destination = T3Destination(root: root)
+        case .grok(let id):
+            // Only bots Grok Bot knows: an unknown id would make it open on nothing.
+            guard composer.bot(id) != nil else {
+                deliver(failure(name, "Grok Bot has no bot with id \(id.prefix(8))"))
+                return
+            }
+            destination = GrokDestination(agent: id, name: name)
+        case .chatgpt:
+            let profiles = HeliumProfiles.list()
+            guard let profile = Config.shared.chatgptHeliumProfile.flatMap({ dir in profiles.first { $0.directory == dir } })
+                ?? HeliumProfiles.defaultProfile(in: profiles)
+            else {
+                deliver(failure(name, "Choose a Helium profile in Island's settings"))
+                return
+            }
+            destination = ChatGPTDestination(profile: profile.directory, profileName: profile.name) { [weak self] pid, tab in
+                DispatchQueue.global(qos: .utility).async {
+                    guard let reply = ChatGPTReply.wait(pid: pid, tab: tab) else { return }
+                    DispatchQueue.main.async { self?.deliver(Self.chatGPTMessage(reply, pid: pid, tab: tab)) }
+                }
+            }
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try destination.send(text)
+            } catch {
+                log("send to \(target.stored) failed: \(error.localizedDescription)")
+                DispatchQueue.main.async { self?.deliver(Self.failureMessage(name, error.localizedDescription)) }
+            }
+        }
+    }
+
+    private func failure(_ name: String, _ reason: String) -> Message { Self.failureMessage(name, reason) }
+
+    static func failureMessage(_ name: String, _ reason: String) -> Message {
+        Message(title: "Couldn't send to \(name)", body: reason,
+                icon: "exclamationmark.triangle.fill", color: "orange", seconds: 12)
+    }
+
+    static func chatGPTMessage(_ reply: String, pid: pid_t, tab: String) -> Message {
+        var m = Message(title: "ChatGPT")
+        m.body = reply.split(whereSeparator: \.isNewline).joined(separator: " ")
+        m.source = "Helium"
+        if let path = TargetIcon.chatgptPath { m.image = "app:" + path } else { m.icon = "bubble.left.fill" }
+        m.heliumTab = "\(pid):\(tab)"
+        return m
+    }
+
+    // MARK: Grok banners
+
+    private func pollGrok() {
+        grokQueue.async { [weak self] in
+            guard let self else { return }
+            let events = self.grok.poll()
+            let bots = self.grok.bots
+            DispatchQueue.main.async {
+                if bots != self.composer.grokBots {
+                    self.composer.grokBots = bots
+                    self.updateComposerBots()
+                }
+                for event in events { self.deliver(Self.grokMessage(event)) }
+            }
+        }
+    }
+
+    /// The picker's bots: the ones chosen in settings, or the main bot.
+    private func updateComposerBots() {
+        let bots = composer.grokBots
+        let chosen = Config.shared.composerGrokBots ?? GrokWatch.mainBot(in: bots).map { [$0.id] } ?? []
+        composer.composer.bots = bots.filter { chosen.contains($0.id) }.map { Composer.Bot(id: $0.id, name: $0.name) }
+    }
+
+    static func grokMessage(_ event: GrokEvent) -> Message {
+        let bot = event.bot
+        var m = Message(title: event.kind == .needsYou ? "\(bot.name) needs you" : bot.name)
+        m.body = bot.lastText.map { $0.split(whereSeparator: \.isNewline).joined(separator: " ") }
+        m.source = "Grok"
+        if let path = TargetIcon.avatarPath(shape: bot.avatarShape, color: bot.avatarColor) { m.image = path }
+        m.open = "grokbot://app/v1/agent?id=\(bot.id)"
+        if event.kind == .needsYou { m.sound = "Glass" }
+        return m
     }
 }

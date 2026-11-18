@@ -1,4 +1,5 @@
 import AppKit
+import IslandCore
 import SwiftUI
 
 /// The settings window: edits ~/.config/notch-island/config.json and applies
@@ -8,8 +9,8 @@ final class SettingsWindow {
     private let model: SettingsModel
     private var window: NSWindow?
 
-    init(agenda: Agenda, onChange: @escaping () -> Void) {
-        model = SettingsModel(agenda: agenda, onChange: onChange)
+    init(agenda: Agenda, grokBots: @escaping () -> [GrokBot], onChange: @escaping () -> Void) {
+        model = SettingsModel(agenda: agenda, grokBots: grokBots, onChange: onChange)
     }
 
     var visible: Bool { window?.isVisible == true }
@@ -17,6 +18,7 @@ final class SettingsWindow {
     func show() {
         model.config = Config.shared
         model.agenda.reloadIfAllowed()
+        model.reloadComposer()
         if window == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
@@ -43,10 +45,46 @@ final class SettingsModel: ObservableObject {
     }
     let agenda: Agenda
     private let onChange: () -> Void
+    private let grokRoster: () -> [GrokBot]
+    @Published var grokBots: [GrokBot] = []
+    @Published var heliumProfiles: [HeliumProfiles.Profile] = []
 
-    init(agenda: Agenda, onChange: @escaping () -> Void) {
+    init(agenda: Agenda, grokBots: @escaping () -> [GrokBot], onChange: @escaping () -> Void) {
         self.agenda = agenda
+        self.grokRoster = grokBots
         self.onChange = onChange
+    }
+
+    func reloadComposer() {
+        grokBots = grokRoster()
+        heliumProfiles = HeliumProfiles.list()
+    }
+
+    // MARK: Command bar
+
+    /// Bots in the picker; no list in the config means just the main bot.
+    func inPicker(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { self.chosenBots.contains(id) },
+            set: { on in
+                var ids = self.chosenBots
+                ids.removeAll { $0 == id }
+                if on { ids.append(id) }
+                self.config.composerGrokBots = ids
+            })
+    }
+
+    private var chosenBots: [String] {
+        config.composerGrokBots ?? GrokWatch.mainBot(in: grokBots).map { [$0.id] } ?? []
+    }
+
+    var mainBot: String? { GrokWatch.mainBot(in: grokBots)?.id }
+
+    /// The profile folder; unset means the "36 Labs" profile.
+    var heliumProfile: Binding<String> {
+        Binding(
+            get: { self.config.chatgptHeliumProfile ?? HeliumProfiles.defaultProfile(in: self.heliumProfiles)?.directory ?? "" },
+            set: { self.config.chatgptHeliumProfile = $0.isEmpty ? nil : $0 })
     }
 
     /// A binding to an optional setting, read with its default.
@@ -145,7 +183,7 @@ struct SettingsView: View {
         Form {
             Section {
                 Toggle("Caps Lock opens the island", isOn: model.binding(\.capsLockTrigger, false))
-                Text("Caps + 1–4 opens a tile, Caps + , opens settings. On a banner, Caps pins it: ⏎ opens it, Esc dismisses it.")
+                Text("Caps + 1–4 opens a tile, Caps + , opens settings, Caps + A opens the command bar. On a banner, Caps pins it: ⏎ opens it, Esc dismisses it.")
                     .font(.caption).foregroundStyle(.secondary)
             } header: { FormHeader("Keyboard") }
 
@@ -163,6 +201,35 @@ struct SettingsView: View {
                     Toggle("Verification codes from Gmail", isOn: model.binding(\.emailCodes, true))
                 }
             } header: { FormHeader("Banners") }
+
+            Section {
+                if model.grokBots.isEmpty {
+                    Text("Grok Bot's bots show here once it has run.").foregroundStyle(.secondary)
+                }
+                ForEach(model.grokBots, id: \.id) { bot in
+                    Toggle(isOn: model.inPicker(bot.id)) {
+                        HStack(spacing: 8) {
+                            if let path = TargetIcon.avatarPath(shape: bot.avatarShape, color: bot.avatarColor),
+                               let image = NSImage(contentsOfFile: path) {
+                                Image(nsImage: image).resizable().interpolation(.high)
+                                    .frame(width: 26, height: 26).frame(width: 18, height: 18)
+                            }
+                            Text(bot.name)
+                            if bot.id == model.mainBot { Text("main").font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                Toggle("Banners when any Grok bot replies or needs you", isOn: model.binding(\.grokBanners, true))
+                Picker("ChatGPT opens in Helium profile", selection: model.heliumProfile) {
+                    if model.heliumProfiles.isEmpty { Text("Helium not found").tag("") }
+                    ForEach(model.heliumProfiles, id: \.directory) { Text($0.name).tag($0.directory) }
+                }
+            } header: {
+                FormHeader("Composer")
+            } footer: {
+                Text("The picker lists the ticked bots; banners cover every bot. ChatGPT chats open as a background tab in a window of that profile, which needs View › Developer › Allow JavaScript from Apple Events on in it. Sending to Grok needs Accessibility permission for Island.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
             Section {
                 Toggle("Countdown before meetings", isOn: model.binding(\.meetingReminders, true))

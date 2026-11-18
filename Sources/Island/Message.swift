@@ -15,6 +15,7 @@ let agentsName = Notification.Name("dev.notchisland.agents")
 let devicePreviewName = Notification.Name("dev.notchisland.device-preview")
 let mirrorReplayName = Notification.Name("dev.notchisland.mirror-replay")
 let settingsName = Notification.Name("dev.notchisland.settings")
+let composerName = Notification.Name("dev.notchisland.composer")
 
 struct Message: Codable {
     var title = ""
@@ -54,6 +55,11 @@ struct Message: Codable {
     var repo: String?
     /// Shown while something is full screen: one small line, no sound.
     var quiet: Bool?
+    /// A ChatGPT chat started from the command bar: "<Helium pid>:<tab id>", selected on click.
+    var heliumTab: String?
+
+    /// A pre-rendered Grok avatar, drawn with room around it rather than as a tile.
+    var avatar: Bool { image?.hasSuffix(".svg") == true }
 
     var tint: Color {
         let named: [String: Color] = [
@@ -82,7 +88,9 @@ struct Message: Codable {
     }
 
     func perform() {
-        if let slackID, let url = Slack.channelLink(notification: slackID) {
+        if let heliumTab, let colon = heliumTab.firstIndex(of: ":"), let pid = pid_t(heliumTab[..<colon]) {
+            Helium.focus(pid: pid, tab: String(heliumTab[heliumTab.index(after: colon)...]))
+        } else if let slackID, let url = Slack.channelLink(notification: slackID) {
             NSWorkspace.shared.open(url)
         } else if let open {
             let url = URL(string: open).flatMap { $0.scheme == nil ? nil : $0 }
@@ -190,6 +198,9 @@ enum Notify {
                 exit(0)
             case "--settings":
                 Agent.post(settingsName)
+                exit(0)
+            case "--composer":
+                Agent.post(composerName)
                 exit(0)
             case "--replay-notification":
                 Agent.post(mirrorReplayName)

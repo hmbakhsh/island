@@ -78,6 +78,22 @@ out of the way: nothing sits beside the notch, "done" banners are skipped
 silent line that goes after 5 seconds. Verification codes still show in full.
 Turn it off with `"quietInFullScreen": false` or in settings.
 
+**Command bar.** Caps Lock then **A** (or `island --composer`) opens a field in
+the notch, aimed at wherever you last sent. Type, or hold right ⌥ to dictate
+with Hex, and press ⏎: it goes out in the background and the bar closes.
+Nothing comes to the front. ⌫ on an empty field picks another target: your
+Grok bots, ChatGPT, or T3 Code (⏎ or ⇥ on it lists projects, "No project"
+first). Type to filter, ↑ ↓ to move, Esc to back out.
+
+- **T3 Code** starts a new thread in the project with its default model, through `~/.t3/bin/t3 thread start`.
+- **Grok bots** get the message in their chat over Accessibility, so Island needs Accessibility permission and Grok Bot needs its window open.
+- **ChatGPT** starts a new chat on chatgpt.com in a background tab of your Helium, in a window of the profile chosen in settings (default "36 Labs"). That profile needs View › Developer › Allow JavaScript from Apple Events. When ChatGPT finishes, the reply drops as a banner; click it to open the tab.
+
+Any Grok bot that replies or needs you drops a banner with its avatar (turn
+them off with `"grokBanners": false` or in settings). Settings → Composer
+chooses the bots in the picker and the Helium profile. ChatGPT is driven
+through its web page, so it breaks when OpenAI changes the page.
+
 **Notifications.** Everything that reached the island, grouped: a section per
 mirrored app (Slack) with one row per channel or DM from the last day, showing
 the latest message and how many came in, then everything else. Click a row to
@@ -183,7 +199,7 @@ Caps Lock to another key in System Settings → Keyboard → Modifier Keys, Isla
 follows that too when it's a right-side modifier (built-in keyboards don't
 have those); otherwise set Caps Lock back to "⇪ Caps Lock" there. While it's open
 from Caps Lock, **1** opens your calendar, **2** opens notifications, **3** plays or
-pauses Spotify, **4** opens the agents list, and **,** opens settings; hold Caps Lock and press the number, or tap one then the other.
+pauses Spotify, **4** opens the agents list, **A** opens the command bar, and **,** opens settings; hold Caps Lock and press the number, or tap one then the other.
 Both lists open with the first row highlighted: ↑ ↓ move, ⏎ opens it (the
 thread in T3, or the event's call, else the event in Calendar), so joining your
 next call is Caps Lock, 1, ⏎. The number and arrow keys are only taken while
@@ -282,6 +298,12 @@ just hero                         # re-render the README hero from docs/hero/her
 | `ISLAND_T3_DB` | T3 database to watch |
 | `ISLAND_ANNOUNCE_EXISTING=1` | Announce threads already waiting at startup |
 | `ISLAND_SLOWMO` | Multiply animation durations |
+| `ISLAND_CONFIG` | Config file to use (default `~/.config/notch-island/config.json`) |
+| `ISLAND_GROK_DIR` | Grok Bot state folder to watch |
+| `ISLAND_HELIUM_DIR` | Helium data folder (profiles and sessions) |
+
+`swift test` runs the command bar's state machine, the Grok roster watcher and
+the Helium profile matching against fixtures.
 
 ## License
 
