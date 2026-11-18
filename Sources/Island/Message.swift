@@ -55,7 +55,7 @@ struct Message: Codable {
     var repo: String?
     /// Shown while something is full screen: one small line, no sound.
     var quiet: Bool?
-    /// A ChatGPT chat started from the command bar: "<Helium pid>:<tab id>", selected on click.
+    /// A ChatGPT chat started from the command bar: "<Helium pid>:<tab id>|<chat URL>", shown on click.
     var heliumTab: String?
 
     /// A pre-rendered Grok avatar, drawn with room around it rather than as a tile.
@@ -89,7 +89,8 @@ struct Message: Codable {
 
     func perform() {
         if let heliumTab, let colon = heliumTab.firstIndex(of: ":"), let pid = pid_t(heliumTab[..<colon]) {
-            Helium.focus(pid: pid, tab: String(heliumTab[heliumTab.index(after: colon)...]))
+            let rest = heliumTab[heliumTab.index(after: colon)...].split(separator: "|", maxSplits: 1).map(String.init)
+            Helium.focus(pid: pid, tab: rest.first ?? "", chat: rest.count > 1 ? rest[1] : nil)
         } else if let slackID, let url = Slack.channelLink(notification: slackID) {
             NSWorkspace.shared.open(url)
         } else if let open {

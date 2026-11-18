@@ -112,26 +112,27 @@ struct GrokDestination: Destination {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else {
             throw SendError("Grok Bot isn't running")
         }
-        // Selects the bot. Grok Bot comes forward when it handles the link,
-        // even with -g, so the app you were in gets the keyboard back after.
-        // Already on that bot: no link, so Grok Bot isn't raised at all.
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        if GrokSelection.current() != agent {
-            let open = Process()
-            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = ["-g", "grokbot://app/v1/agent?id=\(agent)"]
-            try open.run()
-            open.waitUntilExit()
-            guard Self.waitFor({ GrokSelection.current() == agent }, seconds: 4) else {
-                Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier)
-                throw SendError("Grok Bot didn't switch to \(name)")
-            }
-            Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier, within: 2)
-        }
-
         let ax = AXUIElementCreateApplication(app.processIdentifier)
         // Electron only builds its accessibility tree when asked.
         AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+        // Select the bot by pressing its sidebar row. Its grokbot:// link
+        // would raise Grok Bot, even with open -g; the press doesn't.
+        if GrokSelection.current() != agent {
+            var row: AXUIElement?
+            _ = Self.waitFor({
+                row = Self.find(in: ax) {
+                    let d = description($0)
+                    return role($0) == "AXButton" && (d == name || d.hasPrefix(name + ","))
+                }
+                return row != nil
+            }, seconds: 3)
+            guard let row else { throw SendError("\(name) isn't in Grok Bot's sidebar, or its window is closed") }
+            AXUIElementPerformAction(row, "AXPress" as CFString)
+            guard Self.waitFor({ GrokSelection.current() == agent }, seconds: 4) else {
+                throw SendError("Grok Bot didn't switch to \(name)")
+            }
+        }
         var prompt: AXUIElement?
         _ = Self.waitFor({
             prompt = Self.find(in: ax) { role($0) == "AXTextArea" && description($0) == "Prompt" }
@@ -164,12 +165,8 @@ struct GrokDestination: Destination {
             AXUIElementPerformAction(button, "AXPress" as CFString)
             sent = Self.waitFor(boxEmpty, seconds: 1.5)
         }
-        guard sent else {
-            Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier)
-            throw SendError("Grok Bot didn't take the message; it's left in its box")
-        }
+        guard sent else { throw SendError("Grok Bot didn't take the message; it's left in its box") }
         log("grok: sent to \(agent)")
-        Focus.giveBack(to: frontmost, ifRaised: app.processIdentifier, within: 2)
     }
 
     static func waitFor(_ check: () -> Bool, seconds: Double) -> Bool {
@@ -217,9 +214,15 @@ enum GrokSelection {
 
 // MARK: - ChatGPT
 
-/// A new chat on chatgpt.com, in a background tab of the user's Helium
-/// (not the agent instance), in the chosen profile's window. The selected
-/// tab stays selected and Helium stays behind.
+/// A new chat on chatgpt.com in the user's Helium (not the agent instance),
+/// in a window of the chosen profile, without Helium coming forward.
+///
+/// Creating a tab or setting its URL over Apple Events brings Helium
+/// forward, so Island never does either. It keeps one tab of its own on
+/// chatgpt.com, marked in that tab's sessionStorage (which survives Helium
+/// restarts), and starts each chat by navigating it from JavaScript. The
+/// first time, it adopts a chatgpt.com tab sitting on an empty new chat that
+/// isn't the selected tab. Sends are serial: the next waits for the reply.
 ///
 /// Helium's scripting doesn't say which profile a window is, so windows are
 /// matched by their tabs against each profile's saved session (see
@@ -238,36 +241,22 @@ struct ChatGPTDestination: Destination {
         guard let window = Helium.window(of: app, profile: profile) else {
             throw SendError("No \(profileName) window open in Helium")
         }
+        let (found, jsOn) = Self.islandTab(in: window)
+        guard jsOn else {
+            throw SendError("Turn on View › Developer › Allow JavaScript from Apple Events in Helium (\(profileName))")
+        }
+        guard let tab = found, let id = tab.value(forKey: "id").map({ "\($0)" }) else {
+            throw SendError("Open chatgpt.com in a background tab of \(profileName) once; Island reuses it")
+        }
+
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?#")
-        let q = text.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
-        let previous = window.value(forKey: "activeTabIndex") as? Int
-        let tabs = window.value(forKey: "tabs") as! SBElementArray
-        let before = Set(Helium.ids(tabs))
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        guard let tabClass: AnyObject = app.class(forScriptingClass: "tab"),
-              let raw = tabClass.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
-              let tab = raw.perform(NSSelectorFromString("initWithProperties:"), with: ["URL": "https://chatgpt.com/?q=\(q)"])?
-                .takeUnretainedValue()
-        else { throw SendError("Couldn't make a Helium tab") }
-        tabs.add(tab)
-        // The add lands asynchronously and selects the new tab: put the
-        // user's tab back as soon as it shows up.
-        var id: String?
-        _ = GrokDestination.waitFor({
-            id = Helium.ids(tabs).first { !before.contains($0) }
-            return id != nil
-        }, seconds: 3)
-        // Adding a tab over Apple Events selects it and brings Helium forward:
-        // put both back. ChatGPT does the same again once the message sends.
-        let restore = {
-            if let previous, window.value(forKey: "activeTabIndex") as? Int != previous {
-                window.setValue(previous, forKey: "activeTabIndex")
-            }
-            Focus.giveBack(to: frontmost, ifRaised: pid)
-        }
-        restore()
-        guard let id, let chat = Helium.tab(id, in: app) else { throw SendError("Helium didn't open the tab") }
+        let url = "https://chatgpt.com/?q=" + (text.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
+        // The old page marks itself, so the new one is known once the mark is gone.
+        _ = Helium.run("window.__islandOld = true; location.href = \(Self.literal(url)); 'ok'", in: tab)
+        guard GrokDestination.waitFor({
+            Helium.run("window.__islandOld ? 'old' : document.readyState", in: tab) == "complete"
+        }, seconds: 20) else { throw SendError("chatgpt.com didn't load") }
 
         // ?q= fills the box but doesn't send: press its send button. A click
         // before the page has hydrated does nothing, so keep pressing until
@@ -279,40 +268,45 @@ struct ChatGPTDestination: Destination {
             """
         var result: String?
         let sent = GrokDestination.waitFor({
-            result = Helium.run(click, in: chat)
+            result = Helium.run(click, in: tab)
             if result != "sent" { usleep(700_000) }
             return result == "sent"
         }, seconds: 30)
-        guard sent else {
-            if result == nil {
-                throw SendError("Turn on View › Developer › Allow JavaScript from Apple Events in Helium (\(profileName))")
-            }
-            throw SendError("ChatGPT's send button didn't appear (\(result!))")
-        }
+        guard sent else { throw SendError("ChatGPT's send button didn't work (\(result ?? "no answer"))") }
         log("chatgpt: sent in tab \(id)")
-        usleep(800_000)
-        restore()
         onSent?(pid, id)
     }
-}
 
-/// Gives the keyboard back to the app you were in after another app pushed
-/// itself forward. macOS only lets the active app pass activation on, so
-/// Island activates for a moment and yields.
-enum Focus {
-    static func giveBack(to app: NSRunningApplication?, ifRaised pid: pid_t, within seconds: Double = 1) {
-        guard let app, app.processIdentifier != pid else { return }
-        let raised = GrokDestination.waitFor({
-            NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-        }, seconds: seconds)
-        guard raised else { return }
-        DispatchQueue.main.sync { NSApp.activate(ignoringOtherApps: true) }
-        usleep(150_000)
-        DispatchQueue.main.sync {
-            NSApp.yieldActivation(to: app)
-            app.activate()
+    static let mark = "islandComposer"
+
+    /// Island's tab in the window, adopting an idle new-chat tab the first
+    /// time. Also says whether JavaScript from Apple Events is on.
+    static func islandTab(in window: SBObject) -> (SBObject?, jsOn: Bool) {
+        guard let tabs = window.value(forKey: "tabs") as? SBElementArray else { return (nil, true) }
+        let active = window.value(forKey: "activeTabIndex") as? Int
+        var chat: [(index: Int, tab: SBObject, url: String)] = []
+        for (n, item) in tabs.enumerated() {
+            guard let tab = item as? SBObject, let url = tab.value(forKey: "URL") as? String,
+                  url.hasPrefix("https://chatgpt.com") else { continue }
+            chat.append((n + 1, tab, url))
         }
-        log("focus: gave the keyboard back to \(app.bundleIdentifier ?? "?")")
+        var jsOn = chat.isEmpty
+        for c in chat {
+            let marked = Helium.run("sessionStorage.getItem('\(mark)') || ''", in: c.tab)
+            if marked != nil { jsOn = true }
+            if marked == "1" { return (c.tab, true) }
+        }
+        let idle = chat.first { c in
+            guard c.index != active, let path = URL(string: c.url)?.path, path.isEmpty || path == "/" else { return false }
+            return Helium.run("sessionStorage.setItem('\(mark)', '1'); 'ok'", in: c.tab) == "ok"
+        }
+        return (idle?.tab, jsOn)
+    }
+
+    /// A JavaScript string literal.
+    static func literal(_ s: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [s])) ?? Data("[\"\"]".utf8)
+        return String(String(decoding: data, as: UTF8.self).dropFirst().dropLast())
     }
 }
 
@@ -380,13 +374,18 @@ enum Helium {
         return "\(result)"
     }
 
-    /// Clicking the reply banner: select the chat's tab and bring Helium forward.
-    static func focus(pid: pid_t, tab id: String) {
+    /// Clicking the reply banner: select Island's tab on that chat (it may
+    /// have moved on to a later one) and bring Helium forward.
+    static func focus(pid: pid_t, tab id: String, chat: String?) {
         DispatchQueue.global(qos: .userInitiated).async {
             if let app = SBApplication(processIdentifier: pid) {
                 for (n, window) in windows(of: app).enumerated() {
                     guard let tabs = window.value(forKey: "tabs") as? SBElementArray,
                           let index = ids(tabs).firstIndex(of: id) else { continue }
+                    if let chat, let tab = tabs.object(at: index) as? SBObject,
+                       tab.value(forKey: "URL") as? String != chat {
+                        _ = run("location.href = \(ChatGPTDestination.literal(chat)); 'ok'", in: tab)
+                    }
                     window.setValue(index + 1, forKey: "activeTabIndex")
                     if n > 0 { window.setValue(1, forKey: "index") }
                     break
@@ -406,13 +405,13 @@ enum ChatGPTReply {
           let reply = bodies.length ? bodies[bodies.length - 1].innerText : '';
           if (!reply) { const t = document.body.innerText; const i = t.lastIndexOf('ChatGPT said:');
             if (i >= 0) reply = t.slice(i + 'ChatGPT said:'.length); }
-          return JSON.stringify({ busy: !!stop, reply: reply.trim() });
+          return JSON.stringify({ busy: !!stop, reply: reply.trim(), url: location.href });
         })()
         """
 
     /// Polls every 2.5 seconds until ChatGPT stops writing; nil if the tab
     /// went away or ten minutes passed.
-    static func wait(pid: pid_t, tab id: String) -> String? {
+    static func wait(pid: pid_t, tab id: String) -> (reply: String, url: String)? {
         let end = Date().addingTimeInterval(600)
         var quietPolls = 0
         while Date() < end {
@@ -426,7 +425,7 @@ enum ChatGPTReply {
             // Done once nothing is streaming and there's an answer, seen twice in a row.
             if !busy, !reply.isEmpty {
                 quietPolls += 1
-                if quietPolls >= 2 { return reply }
+                if quietPolls >= 2 { return (reply, state["url"] as? String ?? "") }
             } else {
                 quietPolls = 0
             }

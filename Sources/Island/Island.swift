@@ -1050,14 +1050,21 @@ final class Island: NSObject, NSApplicationDelegate {
                 deliver(failure(name, "Choose a Helium profile in Island's settings"))
                 return
             }
-            destination = ChatGPTDestination(profile: profile.directory, profileName: profile.name) { [weak self] pid, tab in
-                DispatchQueue.global(qos: .utility).async {
-                    guard let reply = ChatGPTReply.wait(pid: pid, tab: tab) else { return }
-                    DispatchQueue.main.async { self?.deliver(Self.chatGPTMessage(reply, pid: pid, tab: tab)) }
-                }
+            // One tab, so one chat at a time: the next send waits for this reply.
+            let chat = ChatGPTDestination(profile: profile.directory, profileName: profile.name) { [weak self] pid, tab in
+                guard let done = ChatGPTReply.wait(pid: pid, tab: tab) else { return }
+                DispatchQueue.main.async { self?.deliver(Self.chatGPTMessage(done.reply, pid: pid, tab: tab, url: done.url)) }
             }
+            run(chat, text: text, target: target, name: name, on: chatQueue)
+            return
         }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        run(destination, text: text, target: target, name: name, on: .global(qos: .userInitiated))
+    }
+
+    private let chatQueue = DispatchQueue(label: "island.chatgpt")
+
+    private func run(_ destination: Destination, text: String, target: Target, name: String, on queue: DispatchQueue) {
+        queue.async { [weak self] in
             do {
                 try destination.send(text)
             } catch {
@@ -1074,12 +1081,12 @@ final class Island: NSObject, NSApplicationDelegate {
                 icon: "exclamationmark.triangle.fill", color: "orange", seconds: 12)
     }
 
-    static func chatGPTMessage(_ reply: String, pid: pid_t, tab: String) -> Message {
+    static func chatGPTMessage(_ reply: String, pid: pid_t, tab: String, url: String) -> Message {
         var m = Message(title: "ChatGPT")
         m.body = reply.split(whereSeparator: \.isNewline).joined(separator: " ")
         m.source = "Helium"
         if let path = TargetIcon.chatgptPath { m.image = "app:" + path } else { m.icon = "bubble.left.fill" }
-        m.heliumTab = "\(pid):\(tab)"
+        m.heliumTab = "\(pid):\(tab)|\(url)"
         return m
     }
 
