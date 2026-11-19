@@ -245,8 +245,9 @@ struct ChatGPTDestination: Destination {
         guard jsOn else {
             throw SendError("Turn on View › Developer › Allow JavaScript from Apple Events in Helium (\(profileName))")
         }
+        ChatGPTTab.wanted = true
         guard let tab = found, let id = tab.value(forKey: "id").map({ "\($0)" }) else {
-            throw SendError("Open chatgpt.com in a background tab of \(profileName) once; Island reuses it")
+            throw SendError("Switch to Helium once: Island adds its ChatGPT tab to \(profileName) while you're there")
         }
 
         var allowed = CharacterSet.urlQueryAllowed
@@ -303,10 +304,48 @@ struct ChatGPTDestination: Destination {
         return (idle?.tab, jsOn)
     }
 
+    /// Adds Island's tab to the profile's window. Only call this while
+    /// Helium is in front: opening a tab brings Helium forward.
+    static func addTab(profile: String) {
+        guard let pid = Helium.userPID(), let app = SBApplication(processIdentifier: pid),
+              let window = Helium.window(of: app, profile: profile),
+              islandTab(in: window).0 == nil,
+              let tabs = window.value(forKey: "tabs") as? SBElementArray,
+              let tabClass: AnyObject = app.class(forScriptingClass: "tab"),
+              let raw = tabClass.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
+              let tab = raw.perform(NSSelectorFromString("initWithProperties:"), with: ["URL": "https://chatgpt.com/"])?
+                .takeUnretainedValue()
+        else { return }
+        let previous = window.value(forKey: "activeTabIndex") as? Int
+        let before = Set(Helium.ids(tabs))
+        tabs.add(tab)
+        var id: String?
+        _ = GrokDestination.waitFor({
+            id = Helium.ids(tabs).first { !before.contains($0) }
+            return id != nil
+        }, seconds: 3)
+        // The add selects the new tab: put yours back straight away.
+        if let previous { window.setValue(previous, forKey: "activeTabIndex") }
+        guard let id, let added = Helium.tab(id, in: app) else { return }
+        let marked = GrokDestination.waitFor({
+            Helium.run("sessionStorage.setItem('\(mark)', '1'); sessionStorage.getItem('\(mark)')", in: added) == "1"
+        }, seconds: 20)
+        log("chatgpt: added Island's tab \(id) to \(profile), marked \(marked)")
+    }
+
     /// A JavaScript string literal.
     static func literal(_ s: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: [s])) ?? Data("[\"\"]".utf8)
         return String(String(decoding: data, as: UTF8.self).dropFirst().dropLast())
+    }
+}
+
+/// Whether Island should keep a ChatGPT tab: once ChatGPT has been used from the bar.
+enum ChatGPTTab {
+    private static let key = "chatgptTabWanted"
+    static var wanted: Bool {
+        get { UserDefaults.standard.bool(forKey: key) }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
 

@@ -140,6 +140,7 @@ final class Island: NSObject, NSApplicationDelegate {
         ) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             if let id = app?.bundleIdentifier { self?.appActivated(id) }
+            if app?.bundleIdentifier == ChatGPTDestination.heliumID { self?.heliumActivated() }
         }
         codes.onCode = { [weak self] message in self?.deliver(message) }
         mirror.start()
@@ -1068,6 +1069,21 @@ final class Island: NSObject, NSApplicationDelegate {
     }
 
     private let chatQueue = DispatchQueue(label: "island.chatgpt")
+
+    /// You switched to Helium: if ChatGPT is in use and Island's tab is
+    /// missing, add it now, while Helium is in front anyway.
+    private func heliumActivated() {
+        guard ChatGPTTab.wanted else { return }
+        let profiles = HeliumProfiles.list()
+        guard let profile = Config.shared.chatgptHeliumProfile.flatMap({ dir in profiles.first { $0.directory == dir } })
+            ?? HeliumProfiles.defaultProfile(in: profiles) else { return }
+        chatQueue.asyncAfter(deadline: .now() + 0.5) {
+            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ChatGPTDestination.heliumID,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == Helium.userPID()
+            else { return }
+            ChatGPTDestination.addTab(profile: profile.directory)
+        }
+    }
 
     private func run(_ destination: Destination, text: String, target: Target, name: String, on queue: DispatchQueue) {
         queue.async { [weak self] in
