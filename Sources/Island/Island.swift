@@ -1019,7 +1019,10 @@ final class Island: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self, let host = self.panel.contentView else { return }
             // Already typing: making it first responder again would select all, and the next key would replace it.
-            if let field = Self.firstField(in: host), field.currentEditor() == nil { self.panel.makeFirstResponder(field) }
+            if let field = Self.firstField(in: host), field.currentEditor() == nil {
+                self.panel.makeFirstResponder(field)
+                (field.currentEditor() as? NSTextView)?.insertionPointColor = .white
+            }
             log("composer open: key \(self.panel.isKeyWindow), Island active \(NSApp.isActive), frontmost \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")")
         }
     }

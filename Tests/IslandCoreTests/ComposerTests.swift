@@ -10,7 +10,8 @@ final class ComposerTests: XCTestCase {
     let pulse = Composer.Project(root: "/u/pulse", name: "pulse_new", lastUsed: day(4))
     let hiring = Composer.Project(root: "/u/hiring", name: "36labs-hiring", lastUsed: day(2))
 
-    func composer(bots: [Composer.Bot]? = nil, last: Target? = nil) -> Composer {
+    /// Picker tests start aimed at the main bot; the default target has its own tests.
+    func composer(bots: [Composer.Bot]? = nil, last: Target? = .grok("main-id")) -> Composer {
         var c = Composer(bots: bots ?? [main], projects: [hiring, scratch, pulse, island], lastTarget: last)
         c.open()
         return c
@@ -33,19 +34,30 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(c.text, "")
     }
 
-    func testOpensOnTheMainBotWithNoLastTarget() {
-        XCTAssertEqual(composer().target, .grok("main-id"))
+    func testOpensOnT3CodeNoProjectWithNoLastTarget() {
+        var c = Composer(bots: [main], projects: [island, scratch], lastTarget: nil)
+        c.open()
+        XCTAssertEqual(c.target, .t3("/u/.t3/scratch"))
     }
 
-    func testOpensOnTheMainBotWhenBotsLoadAfterLaunch() {
+    func testOpensOnT3CodeWhenProjectsLoadAfterLaunch() {
+        var c = Composer(bots: [main], projects: [], lastTarget: nil)
+        c.setProjects([scratch, island])
+        c.open()
+        XCTAssertEqual(c.target, .t3("/u/.t3/scratch"))
+    }
+
+    func testOpensOnTheMainBotWithNoT3Projects() {
         var c = Composer(bots: [], projects: [], lastTarget: nil)
         c.bots = [main]
         c.open()
         XCTAssertEqual(c.target, .grok("main-id"))
     }
 
-    func testOpensOnChatGPTWithNoBotsAndNoLastTarget() {
-        XCTAssertEqual(composer(bots: []).target, .chatgpt)
+    func testOpensOnChatGPTWithNothingElse() {
+        var c = Composer(bots: [], projects: [], lastTarget: nil)
+        c.open()
+        XCTAssertEqual(c.target, .chatgpt)
     }
 
     func testReopeningClearsWhatWasTyped() {

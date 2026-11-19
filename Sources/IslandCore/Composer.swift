@@ -112,8 +112,15 @@ public struct Composer {
         self.bots = bots
         self.projects = Self.ordered(projects)
         self.lastTarget = lastTarget
-        target = lastTarget ?? bots.first.map { .grok($0.id) } ?? .chatgpt
+        target = .chatgpt
+        target = lastTarget ?? defaultTarget
         if case .t3(let root) = lastTarget { lastProject = root }
+    }
+
+    /// Before anything's been sent: T3 Code ("No project" first in the list),
+    /// else the main bot, else ChatGPT.
+    private var defaultTarget: Target {
+        projects.first.map { .t3($0.root) } ?? bots.first.map { .grok($0.id) } ?? .chatgpt
     }
 
     public mutating func setProjects(_ projects: [Project]) {
@@ -128,7 +135,7 @@ public struct Composer {
     /// The hotkey: the bar, empty, aimed at where you last sent.
     public mutating func open() {
         mode = .bar
-        target = lastTarget ?? bots.first.map { .grok($0.id) } ?? .chatgpt
+        target = lastTarget ?? defaultTarget
         text = ""
         query = ""
         selection = 0
