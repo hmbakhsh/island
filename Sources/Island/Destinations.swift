@@ -118,7 +118,14 @@ struct GrokDestination: Destination {
 
         // Select the bot by pressing its sidebar row. Its grokbot:// link
         // would raise Grok Bot, even with open -g; the press doesn't.
-        if GrokSelection.current() != agent {
+        // After Grok Bot has sat idle, presses are dropped for several
+        // seconds while it wakes. Press again, finding the row afresh, until
+        // the selection moves.
+        let switchBy = Date().addingTimeInterval(12)
+        var attempt = 0
+        while GrokSelection.current() != agent {
+            guard Date() < switchBy else { throw SendError("Grok Bot didn't switch to \(name)") }
+            attempt += 1
             var row: AXUIElement?
             _ = Self.waitFor({
                 row = Self.find(in: ax) {
@@ -129,9 +136,8 @@ struct GrokDestination: Destination {
             }, seconds: 3)
             guard let row else { throw SendError("\(name) isn't in Grok Bot's sidebar, or its window is closed") }
             AXUIElementPerformAction(row, "AXPress" as CFString)
-            guard Self.waitFor({ GrokSelection.current() == agent }, seconds: 4) else {
-                throw SendError("Grok Bot didn't switch to \(name)")
-            }
+            if Self.waitFor({ GrokSelection.current() == agent }, seconds: 1.5) { break }
+            log("grok: press \(attempt) on \(name) didn't switch")
         }
         var prompt: AXUIElement?
         _ = Self.waitFor({
@@ -156,11 +162,14 @@ struct GrokDestination: Destination {
             }
             return !holding
         }
+        // Same wake-up: keep pressing until the box clears.
+        let sendBy = Date().addingTimeInterval(12)
         var sent = false
-        for _ in 0..<4 where !sent {
+        while !sent, Date() < sendBy {
             usleep(600_000)
             if boxEmpty() { sent = true; break }
-            guard let button = Self.find(in: ax, { role($0) == "AXButton" && description($0).lowercased().hasPrefix("send") })
+            // Exactly "Send message": a draft card in the chat has its own Send.
+            guard let button = Self.find(in: ax, { role($0) == "AXButton" && description($0) == "Send message" })
             else { continue }
             AXUIElementPerformAction(button, "AXPress" as CFString)
             sent = Self.waitFor(boxEmpty, seconds: 1.5)
