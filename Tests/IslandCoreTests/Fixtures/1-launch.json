@@ -1,0 +1,100 @@
+{
+ "schemaVersion": 4,
+ "value": {
+  "rows": [
+   {
+    "id": "main-id",
+    "name": "Grok Bot",
+    "description": "",
+    "title": "",
+    "avatarShape": "blob",
+    "avatarColor": "black",
+    "avatarVersion": null,
+    "avatarPhoto": null,
+    "createdAt": 1790000000000,
+    "updatedAt": 1795000000000,
+    "lastEntry": {
+     "kind": "text",
+     "text": "Booked.",
+     "sessionPreview": {
+      "kind": "message_text",
+      "text": "Booked."
+     }
+    },
+    "lastMessageId": "t10s1",
+    "newestEntryId": "t10s1",
+    "hasUnread": false,
+    "unreadCount": 0,
+    "unreadThreadCount": 0,
+    "lastViewedAt": 1795000000000,
+    "lastActivityAt": 1795000000000,
+    "awaitingUserResponse": null,
+    "notificationsEnabled": false,
+    "isHiddenFromSidebar": false,
+    "isRemovedFromSidebar": false
+   },
+   {
+    "id": "social-id",
+    "name": "Social Bot",
+    "description": "",
+    "title": "",
+    "avatarShape": "sparkle",
+    "avatarColor": "yellow",
+    "avatarVersion": null,
+    "avatarPhoto": null,
+    "createdAt": 1790000000000,
+    "updatedAt": 1795000000000,
+    "lastEntry": {
+     "kind": "text",
+     "text": "Two events this week.",
+     "sessionPreview": {
+      "kind": "message_text",
+      "text": "Two events this week."
+     }
+    },
+    "lastMessageId": "t20s1",
+    "newestEntryId": "t20s1",
+    "hasUnread": true,
+    "unreadCount": 1,
+    "unreadThreadCount": 0,
+    "lastViewedAt": 1795000000000,
+    "lastActivityAt": 1795000000000,
+    "awaitingUserResponse": null,
+    "notificationsEnabled": false,
+    "isHiddenFromSidebar": false,
+    "isRemovedFromSidebar": false
+   },
+   {
+    "id": "hiring-id",
+    "name": "36 Hiring",
+    "description": "",
+    "title": "",
+    "avatarShape": "flower",
+    "avatarColor": "magenta",
+    "avatarVersion": null,
+    "avatarPhoto": null,
+    "createdAt": 1790000000000,
+    "updatedAt": 1795000000000,
+    "lastEntry": {
+     "kind": "text",
+     "text": "Screened 4 CVs.",
+     "sessionPreview": {
+      "kind": "message_text",
+      "text": "Screened 4 CVs."
+     }
+    },
+    "lastMessageId": "t30s1",
+    "newestEntryId": "t30s1",
+    "hasUnread": false,
+    "unreadCount": 0,
+    "unreadThreadCount": 0,
+    "lastViewedAt": 1795000000000,
+    "lastActivityAt": 1795000000000,
+    "awaitingUserResponse": null,
+    "notificationsEnabled": false,
+    "isHiddenFromSidebar": false,
+    "isRemovedFromSidebar": false
+   }
+  ]
+ }
+}
