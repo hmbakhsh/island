@@ -21,6 +21,13 @@ enum Trigger {
     enum ListKey { case up, down, open }
     private static var handlerInstalled = false
     private static var lastPress = Date.distantPast
+    /// Caps Lock is down: its auto-repeat presses are ignored until it's released.
+    private static var capsHeld = false
+    private static var capsReleasedAt = Date.distantPast
+
+    /// Caps Lock is down or was just let go. Some setups send Esc when Caps
+    /// Lock is tapped or released; that Esc isn't meant for the island.
+    static var capsEscape: Bool { capsHeld || Date().timeIntervalSince(capsReleasedAt) < 0.3 }
     private static var lastOpen = Date.distantPast
 
     static func install(_ action: @escaping () -> Void) {
@@ -59,26 +66,34 @@ enum Trigger {
     private static func installHandler() {
         guard !handlerInstalled else { return }
         handlerInstalled = true
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var specs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let installed = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
             var id = EventHotKeyID()
             GetEventParameter(
                 event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                 nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            DispatchQueue.main.async { Trigger.pressed(id.id) }
+            let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
+            DispatchQueue.main.async { released ? Trigger.released(id.id) : Trigger.pressed(id.id) }
             return noErr
-        }, 1, &spec, nil, nil)
+        }, 2, &specs, nil, nil)
         log("hot key handler installed, status \(installed)")
     }
 
     private static func pressed(_ id: UInt32) {
         if id == 1 {
-            // Holding Caps Lock repeats; only a fresh press counts.
+            // Holding Caps Lock repeats, and the first repeat can come well
+            // after the press; only a press after a release counts. A long gap
+            // also counts, in case a release went missing.
             let now = Date()
             defer { lastPress = now }
-            guard now.timeIntervalSince(lastPress) > 0.3 else { return }
+            if capsHeld, now.timeIntervalSince(lastPress) < 2.5 { return }
+            capsHeld = true
             action?()
         } else if id == 20 {
+            guard !capsEscape else { return }
             escapeAction?()
         } else if id >= 30 {
             let key = [ListKey.up, .down, .open][Int(id) - 30]
@@ -91,6 +106,13 @@ enum Trigger {
             listAction?(key)
         } else {
             numberAction?(Int(id) - 10)
+        }
+    }
+
+    private static func released(_ id: UInt32) {
+        if id == 1 {
+            capsHeld = false
+            capsReleasedAt = Date()
         }
     }
 

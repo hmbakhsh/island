@@ -13,8 +13,21 @@ final class FirstClickHost<Content: View>: NSHostingView<Content> {
 /// to sit in it, over the notch.
 final class IslandPanel: NSPanel {
     /// Only the command bar takes the keyboard; the panel never activates Island.
-    var takesKeyboard = false
+    var takesKeyboard = false {
+        didSet { if takesKeyboard, !oldValue { keyboardSince = Date() } }
+    }
+    private var keyboardSince = Date.distantPast
     override var canBecomeKey: Bool { takesKeyboard }
+
+    /// The key that opened the command bar may still be held: its repeats
+    /// would type into the field ("aaaa"), so drop them.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.isARepeat, Date().timeIntervalSince(keyboardSince) < 1.5,
+           event.charactersIgnoringModifiers?.lowercased() == "a" {
+            return
+        }
+        super.sendEvent(event)
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 

@@ -317,6 +317,8 @@ struct ComposerField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)): .down
             default: nil
             }
+            // The Esc some setups send as Caps Lock (the bar's key) comes up.
+            if key == .escape, Trigger.capsEscape { return true }
             guard let key else { return false }
             return model.press(key)
         }
