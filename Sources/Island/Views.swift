@@ -9,6 +9,7 @@ enum Content {
     case calendar(height: CGFloat)
     case agents(height: CGFloat)
     case home
+    case composer(height: CGFloat)
 
     /// Identity for cross-fading between kinds of content.
     var key: String {
@@ -21,6 +22,7 @@ enum Content {
         case .calendar: return "calendar"
         case .agents: return "agents"
         case .home: return "home"
+        case .composer: return "composer"
         }
     }
 
@@ -36,11 +38,13 @@ enum Content {
         case .stack(let s): return StackLayout.height(s)
         case .inbox(let height), .calendar(let height), .agents(let height): return height
         case .home: return HomeLayout.height
+        case .composer(let height): return height
         }
     }
 
     var width: CGFloat {
         if case .message(let m) = self, m.quiet == true { return QuietLayout.width }
+        if case .composer = self { return ComposerLayout.width }
         return islandWidth
     }
 
@@ -91,6 +95,7 @@ struct IslandView: View {
     let history: History
     let watcher: T3Watcher
     let agenda: Agenda
+    let composer: ComposerModel
     let onMessageTap: () -> Void
     let onMessageHover: (Bool) -> Void
     let onOpenThread: (String) -> Void
@@ -103,7 +108,8 @@ struct IslandView: View {
 
     var body: some View {
         let quiet = state.content.width < islandWidth
-        let radius: CGFloat = state.open ? quiet ? 16 : 30 : 10
+        let composing = if case .composer = state.content { true } else { false }
+        let radius: CGFloat = state.open ? quiet ? 16 : composing ? ComposerLayout.radius + ComposerLayout.inset : 30 : 10
         let shape = UnevenRoundedRectangle(
             bottomLeadingRadius: radius, bottomTrailingRadius: radius, style: .continuous)
         let compact = !state.open && (state.live != nil || state.device != nil || state.music)
@@ -121,7 +127,8 @@ struct IslandView: View {
             // grows and old/new content cross-fade inside it when it changes.
             ZStack(alignment: .top) {
                 content
-                    .frame(width: state.content.width, height: state.content.height)
+                    // The command bar resizes as you type; pin it to the top while it does.
+                    .frame(width: state.content.width, height: state.content.height, alignment: composing ? .top : .center)
                     .padding(.top, state.notch.height)
                     .id(state.content.key)
                     // Old content leaves quickly so the two barely overlap.
@@ -182,6 +189,8 @@ struct IslandView: View {
             HomeView(
                 agenda: agenda, player: player, watcher: watcher, history: history,
                 keyboard: state.keyboard, open: onOpenPanel, join: onOpenURL)
+        case .composer:
+            ComposerView(model: composer)
         }
     }
 }
@@ -215,6 +224,10 @@ struct MessageView: View {
     /// An agent, on one line: status symbol, thread name, then its repo.
     private func agentBody(repo: String) -> some View {
         HStack(spacing: 8) {
+            if let url = T3.appURL {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable().interpolation(.high).frame(width: 20, height: 20)
+            }
             Image(systemName: message.icon ?? "checkmark.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(message.tint)
@@ -376,7 +389,14 @@ struct MessageIcon: View {
     var size: CGFloat = 34
 
     var body: some View {
-        if let picture = message.picture {
+        if let picture = message.picture, message.avatar {
+            Image(nsImage: picture)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size * 1.5, height: size * 1.5)
+                .frame(width: size, height: size)
+        } else if let picture = message.picture {
             Image(nsImage: picture)
                 .resizable()
                 .aspectRatio(contentMode: message.image == nil ? .fit : .fill)

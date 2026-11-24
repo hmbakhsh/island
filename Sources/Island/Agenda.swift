@@ -199,13 +199,22 @@ struct Config: Codable {
     /// While something is full screen: no wings, no "done" banners, other
     /// banners small and silent (default on).
     var quietInFullScreen: Bool?
+    /// Grok agent ids listed in the command bar's picker (default: the main bot).
+    var composerGrokBots: [String]?
+    /// Banners when any Grok bot replies or needs you (default on).
+    var grokBanners: Bool?
+    /// Helium profile folder ChatGPT chats open in, e.g. "Profile 3" (default: the "36 Labs" profile).
+    var chatgptHeliumProfile: String?
+    /// Where the command bar last sent ("t3:<root>", "grok:<id>", "chatgpt"). Written by Island.
+    var composerLastTarget: String?
 
     var banner: Double { bannerSeconds ?? 8 }
     var meetingLead: Int { meetingLeadMinutes ?? 2 }
     var meetingBanner: Double { meetingBannerSeconds ?? 30 }
 
-    static let url = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/notch-island/config.json")
+    /// ISLAND_CONFIG points a test instance at another file.
+    static let url = ProcessInfo.processInfo.environment["ISLAND_CONFIG"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/notch-island/config.json")
 
     /// Read at launch; the settings window replaces it and saves.
     static var shared: Config = {

@@ -1,4 +1,5 @@
 import AppKit
+import IslandCore
 import SwiftUI
 
 let spotifyToggleName = Notification.Name("dev.notchisland.spotify")
@@ -15,6 +16,8 @@ let agentsName = Notification.Name("dev.notchisland.agents")
 let devicePreviewName = Notification.Name("dev.notchisland.device-preview")
 let mirrorReplayName = Notification.Name("dev.notchisland.mirror-replay")
 let settingsName = Notification.Name("dev.notchisland.settings")
+let composerName = Notification.Name("dev.notchisland.composer")
+let composerSendName = Notification.Name("dev.notchisland.composer-send")
 
 struct Message: Codable {
     var title = ""
@@ -54,6 +57,11 @@ struct Message: Codable {
     var repo: String?
     /// Shown while something is full screen: one small line, no sound.
     var quiet: Bool?
+    /// A ChatGPT chat started from the command bar: "<Helium pid>:<tab id>|<chat URL>", shown on click.
+    var heliumTab: String?
+
+    /// A pre-rendered Grok avatar, drawn with room around it rather than as a tile.
+    var avatar: Bool { image?.hasSuffix(".svg") == true }
 
     var tint: Color {
         let named: [String: Color] = [
@@ -82,7 +90,10 @@ struct Message: Codable {
     }
 
     func perform() {
-        if let slackID, let url = Slack.channelLink(notification: slackID) {
+        if let heliumTab, let colon = heliumTab.firstIndex(of: ":"), let pid = pid_t(heliumTab[..<colon]) {
+            let rest = heliumTab[heliumTab.index(after: colon)...].split(separator: "|", maxSplits: 1).map(String.init)
+            Helium.focus(pid: pid, tab: rest.first ?? "", chat: rest.count > 1 ? rest[1] : nil)
+        } else if let slackID, let url = Slack.channelLink(notification: slackID) {
             NSWorkspace.shared.open(url)
         } else if let open {
             let url = URL(string: open).flatMap { $0.scheme == nil ? nil : $0 }
@@ -190,6 +201,17 @@ enum Notify {
                 exit(0)
             case "--settings":
                 Agent.post(settingsName)
+                exit(0)
+            case "--composer":
+                Agent.post(composerName)
+                exit(0)
+            case "--send":
+                // Sends as the command bar would, without opening it: --send chatgpt|t3:<root>|grok:<id> TEXT
+                let target = value()
+                let text = value()
+                guard Target(stored: target) != nil else { fail("--send takes chatgpt, t3:<root> or grok:<id>") }
+                let json = try! JSONSerialization.data(withJSONObject: ["target": target, "text": text])
+                Agent.post(composerSendName, json: String(decoding: json, as: UTF8.self))
                 exit(0)
             case "--replay-notification":
                 Agent.post(mirrorReplayName)
