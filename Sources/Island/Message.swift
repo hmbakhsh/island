@@ -17,6 +17,8 @@ let devicePreviewName = Notification.Name("dev.notchisland.device-preview")
 let mirrorReplayName = Notification.Name("dev.notchisland.mirror-replay")
 let settingsName = Notification.Name("dev.notchisland.settings")
 let composerName = Notification.Name("dev.notchisland.composer")
+let focusName = Notification.Name("dev.notchisland.focus")
+let appearanceName = Notification.Name("dev.notchisland.appearance")
 let composerSendName = Notification.Name("dev.notchisland.composer-send")
 
 struct Message: Codable {
@@ -204,6 +206,13 @@ enum Notify {
                 exit(0)
             case "--composer":
                 Agent.post(composerName)
+                exit(0)
+            case "--focus":
+                // --focus list opens the Focus panel; a mode name (or id) sets it; off clears it.
+                Agent.post(focusName, json: value())
+                exit(0)
+            case "--appearance":
+                Agent.post(appearanceName)
                 exit(0)
             case "--send":
                 // Sends as the command bar would, without opening it: --send chatgpt|t3:<root>|grok:<id> TEXT

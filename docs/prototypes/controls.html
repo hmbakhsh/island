@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Question: where do light/dark and Focus modes live in the
+  notch overview? Four variants, switch with the bottom bar or ← →. ?variant=A..D
+  Everything is clickable; nothing touches the real Mac.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Island controls prototype</title>
+<style>
+  :root { --notch-w: 185px; --notch-h: 32px; --w: 380px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: #f2f1ee; color: #1d1d1f;
+         -webkit-font-smoothing: antialiased; padding-bottom: 90px; }
+  header.page { padding: 24px 40px 8px; }
+  header.page h1 { font-size: 20px; font-weight: 650; }
+  header.page p { font-size: 13.5px; opacity: .65; margin-top: 4px; max-width: 900px; line-height: 1.45; }
+  .wrap { display: grid; grid-template-columns: 1fr 320px; gap: 22px; padding: 10px 40px; }
+
+  /* desk: flips with the prototype's appearance */
+  .desk { position: relative; height: 560px; border-radius: 14px; overflow: hidden;
+          background: linear-gradient(160deg, #6f7f99, #a8a1b8 55%, #d9b9a6); transition: filter .4s; }
+  .desk.dark { background: linear-gradient(160deg, #1d2333, #2b2740 55%, #3d2d2a); }
+  .menubar { position: absolute; inset: 0 0 auto 0; height: var(--notch-h); background: rgba(255,255,255,.35);
+             display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 0 16px; font-size: 12.5px; font-weight: 600; }
+  .desk.dark .menubar { background: rgba(0,0,0,.45); color: #fff; }
+  .menubar .fm { display: none; align-items: center; gap: 5px; }
+  .menubar .fm.on { display: flex; }
+  .win { position: absolute; left: 40px; right: 40px; top: 300px; bottom: -20px; border-radius: 12px; background: #fff;
+         box-shadow: 0 10px 40px rgba(0,0,0,.25); padding: 22px 26px; font-size: 13px; color: #333; transition: background .4s, color .4s; }
+  .desk.dark .win { background: #1e1e1e; color: #ddd; }
+  .win b { display: block; font-size: 15px; margin-bottom: 6px; }
+
+  .island { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: var(--w); background: #000; color: #fff;
+            border-radius: 0 0 30px 30px; box-shadow: 0 6px 28px rgba(0,0,0,.45); z-index: 3; overflow: hidden; }
+  .notch { height: var(--notch-h); position: relative; }
+  .notch::after { content: ""; position: absolute; left: 50%; top: 0; width: var(--notch-w); height: var(--notch-h); transform: translateX(-50%);
+                  outline: 1px dashed rgba(255,255,255,.18); border-radius: 0 0 10px 10px; }
+  .body { padding: 6px 12px 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: rgba(255,255,255,.07); border-radius: 16px; padding: 11px; min-height: 82px; display: flex; flex-direction: column; cursor: pointer; transition: background .15s; }
+  .tile:hover { background: rgba(255,255,255,.12); }
+  .lab { display: flex; align-items: center; gap: 5px; font-size: 9.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: rgba(255,255,255,.4); }
+  .lab .k { margin-left: auto; }
+  .k { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.7); width: 17px; height: 17px; display: grid; place-items: center;
+       background: rgba(255,255,255,.12); border-radius: 5px; flex: none; }
+  .kbd-off .k { display: none; }
+  .sp { flex: 1; min-height: 6px; }
+  .p { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
+  .s { font-size: 11px; color: rgba(255,255,255,.5); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { font-size: 10px; font-weight: 650; color: #6ea8ff; background: rgba(80,140,255,.18); border-radius: 4px; padding: 1px 5px; margin-right: 4px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .art { width: 32px; height: 32px; border-radius: 7px; background: linear-gradient(135deg, #6b8fb3, #c9a27a); flex: none; }
+  .play { width: 24px; height: 24px; border-radius: 50%; background: #fff; color: #000; display: grid; place-items: center; font-size: 9px; margin-left: auto; flex: none; }
+  .spin { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: r 1s linear infinite; flex: none; }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  /* shared bits for the new controls */
+  .ico { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; flex: none; background: rgba(255,255,255,.12); transition: background .2s, color .2s; }
+  .ico.sun { background: #ffd60a; color: #000; }
+  .ico.moon { background: rgba(255,255,255,.14); color: #fff; }
+  .ico.focus { background: rgba(255,255,255,.12); color: rgba(255,255,255,.7); }
+  .ico.focus.on { background: var(--fc, #5e5ce6); color: #fff; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 6px; border-radius: 20px; background: rgba(255,255,255,.1); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .pill:hover { background: rgba(255,255,255,.16); }
+  .pill .ico { width: 20px; height: 20px; font-size: 11px; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.1); border-radius: 20px; padding: 2px; }
+  .seg span { padding: 4px 10px; border-radius: 18px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.55); cursor: pointer; }
+  .seg span.on { background: rgba(255,255,255,.9); color: #000; }
+
+  /* focus list panel (shared by A, B, C) */
+  .flist { padding: 4px 10px 12px; }
+  .flist .h { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px; font-size: 13px; font-weight: 650; }
+  .flist .h .back { color: rgba(255,255,255,.45); cursor: pointer; font-size: 15px; }
+  .fr { display: flex; align-items: center; gap: 11px; padding: 6px 10px; border-radius: 16px; cursor: pointer; }
+  .fr:hover { background: rgba(255,255,255,.06); } .fr.sel { background: rgba(255,255,255,.1); }
+  .fr .ico { width: 26px; height: 26px; font-size: 12px; }
+  .fr .n { font-size: 13.5px; font-weight: 600; flex: 1; }
+  .fr .chk { color: #30d158; font-weight: 800; }
+  .fhint { display: flex; gap: 14px; padding: 6px 18px 0; font-size: 11px; color: rgba(255,255,255,.35); }
+
+  /* D: control-centre tab */
+  .tabs { display: flex; gap: 4px; justify-content: center; padding: 2px 0 8px; }
+  .tabs span { font-size: 11.5px; font-weight: 650; padding: 4px 12px; border-radius: 14px; color: rgba(255,255,255,.45); cursor: pointer; }
+  .tabs span.on { background: rgba(255,255,255,.14); color: #fff; }
+  .cc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .big { background: rgba(255,255,255,.07); border-radius: 18px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; min-height: 62px; }
+  .big:hover { background: rgba(255,255,255,.12); }
+  .big.on { background: rgba(255,255,255,.9); color: #000; } .big.on .s { color: rgba(0,0,0,.5); }
+  .fgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .fb { background: rgba(255,255,255,.07); border-radius: 16px; padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; font-weight: 600; text-align: center; }
+  .fb:hover { background: rgba(255,255,255,.12); }
+  .fb.on { background: var(--fc); }
+  .fb .ico { width: 28px; height: 28px; }
+  .fb.on .ico { background: rgba(255,255,255,.25); }
+
+  /* C: right rail */
+  .railwrap { display: grid; grid-template-columns: 1fr 1fr 58px; gap: 8px; }
+  .rail { display: flex; flex-direction: column; gap: 8px; }
+  .rb { flex: 1; background: rgba(255,255,255,.07); border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer; font-size: 9.5px; font-weight: 650; color: rgba(255,255,255,.55); text-align: center; padding: 6px 4px; position: relative; }
+  .rb:hover { background: rgba(255,255,255,.12); }
+  .rb .k { position: absolute; top: 6px; right: 6px; width: 14px; height: 14px; font-size: 8.5px; }
+
+  .side { display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin-bottom: 8px; }
+  .panel p, .panel li { font-size: 13px; line-height: 1.45; }
+  .panel ul { padding-left: 16px; }
+  .panel label { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 2px 0; }
+  .state { font: 12px ui-monospace, Menlo, monospace; white-space: pre; color: #444; }
+
+  .switcher { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
+              background: #ff375f; color: #fff; border-radius: 30px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.25); z-index: 20; font-size: 13.5px; font-weight: 650; }
+  .switcher button { background: rgba(255,255,255,.2); color: #fff; border: 0; width: 32px; height: 32px; border-radius: 50%; font-size: 15px; cursor: pointer; }
+  .switcher .label { padding: 0 14px; min-width: 300px; text-align: center; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Island · light/dark + Focus in the overview</h1>
+  <p>Hover state of the notch overview. Click anything: the sun/moon flips this fake desktop, Focus changes the menu bar.
+     The dashed outline is the hardware notch. <b>← →</b> switch variants.</p>
+</header>
+<div class="wrap">
+  <div class="desk" id="desk">
+    <div class="menubar"><span class="fm" id="mbFocus"></span><span>Tmrw 9am</span><span>19:52</span></div>
+    <div class="island" id="island"></div>
+    <div class="win"><b>GS European AI &amp; Semis Symposium</b>Notes from the sandbox recording…</div>
+  </div>
+  <div class="side">
+    <div class="panel"><h3 id="vname"></h3><p id="vdesc"></p></div>
+    <div class="panel"><h3>Try</h3>
+      <label><input type="checkbox" id="kbd"> Opened with Caps Lock (show keys)</label>
+      <label><input type="checkbox" id="noFda"> No Full Disk Access (Focus state unknown)</label>
+      <p style="font-size:12px;color:#888;margin-top:6px">Keys: 1–4 tiles, 5 light/dark, 6 Focus, ↑ ↓ ⏎ in the Focus list, Esc back.</p>
+    </div>
+    <div class="panel"><h3>State</h3><div class="state" id="state"></div></div>
+  </div>
+</div>
+<div class="switcher"><button id="prev">←</button><span class="label" id="vlabel"></span><button id="next">→</button></div>
+
+<script>
+const FOCUS = [
+  { id: "dnd", name: "Do Not Disturb", g: "☾", c: "#5e5ce6" },
+  { id: "work", name: "Work", g: "▣", c: "#0a84ff" },
+  { id: "personal", name: "Personal", g: "●", c: "#bf5af2" },
+  { id: "sleep", name: "Sleep", g: "ᶻᶻ", c: "#30d158" },
+  { id: "deep", name: "Deep Work", g: "◎", c: "#ff9f0a" },
+];
+const V = {
+  A: ["Third row of cards", "Keeps the 2×2 and adds a shorter row under it: an Appearance card (tap anywhere flips it) and a Focus card (tap opens the list). Island grows ~66pt. Most in keeping with today's tiles."],
+  B: ["Control strip under the notch", "A slim row of controls between the notch and the tiles: Light/Dark segmented switch and a Focus pill. Tiles untouched; island grows ~34pt. Fastest to hit, least visual weight."],
+  C: ["Side rail", "A narrow column of two square buttons beside the 2×2. No height change; tiles get ~30pt narrower each. Looks like iPhone's Control Center shortcuts."],
+  D: ["Controls tab", "Overview gets two tabs: Overview (today) and Controls. Controls is a Control-Center page: big Light/Dark buttons and every Focus mode one tap away. Nothing added to the default view; one extra click (or Tab) to reach."],
+};
+const keys = Object.keys(V);
+const S = { variant: new URLSearchParams(location.search).get("variant") || "A", dark: true, focus: null, view: "home", tab: "overview", sel: 0, kbd: false, noFda: false };
+if (!V[S.variant]) S.variant = "A";
+
+const $ = id => document.getElementById(id);
+const k = n => `<span class="k">${n}</span>`;
+const fOf = id => FOCUS.find(f => f.id === id);
+const apIco = () => S.dark ? `<span class="ico moon">☾</span>` : `<span class="ico sun">☀</span>`;
+const fIco = (f, on) => `<span class="ico focus ${on ? "on" : ""}" style="--fc:${f ? f.c : "#5e5ce6"}">${f ? f.g : "☾"}</span>`;
+const focusLabel = () => S.noFda ? "Unknown" : S.focus ? fOf(S.focus).name : "Off";
+
+const tiles = () => `
+  <div class="tile" onclick="noop()"><div class="lab">▦ Next${k(1)}</div><div class="sp"></div>
+    <div class="p">GS European AI &amp; Semis Symposium</div><div class="s"><span class="tag">Work</span>Tomorrow 9:00</div></div>
+  <div class="tile"><div class="lab">🔔 Notifications${k(2)}</div><div class="sp"></div>
+    <div class="p">Social Bot</div><div class="s">You have one new LinkedIn…</div></div>
+  <div class="tile"><div class="lab">≋ Spotify${k(3)}</div><div class="sp"></div>
+    <div class="row"><span class="art"></span><div style="min-width:0"><div class="p">Every Night</div><div class="s">Lil Mosey</div></div><span class="play">❚❚</span></div></div>
+  <div class="tile"><div class="lab">✦ Agents${k(4)}</div><div class="sp"></div>
+    <div class="row"><span class="spin"></span><div class="p">3 working</div></div></div>`;
+
+function focusList() {
+  return `<div class="flist">
+    <div class="h"><span class="back" onclick="go('home')">‹</span>Focus</div>
+    ${[{ id: null, name: "Off", g: "○", c: "#555" }, ...FOCUS].map((f, i) => `
+      <div class="fr ${S.kbd && S.sel === i ? "sel" : ""}" onclick="setFocus(${f.id ? `'${f.id}'` : null})">
+        ${fIco(f.id ? f : null, f.id && S.focus === f.id)}<span class="n">${f.name}</span>
+        ${!S.noFda && S.focus === f.id ? `<span class="chk">✓</span>` : ""}</div>`).join("")}
+    ${S.kbd ? `<div class="fhint"><span>↑ ↓ choose</span><span>⏎ turn on</span><span>esc back</span></div>` : ""}
+  </div>`;
+}
+
+const R = {
+  A() {
+    return `<div class="grid">${tiles()}
+      <div class="tile" style="min-height:58px" onclick="toggleDark()"><div class="row">${apIco()}
+        <div style="min-width:0"><div class="p">${S.dark ? "Dark" : "Light"}</div><div class="s">Tap for ${S.dark ? "light" : "dark"}</div></div>${S.kbd ? `<span style="margin-left:auto">${k(5)}</span>` : ""}</div></div>
+      <div class="tile" style="min-height:58px" onclick="go('focus')"><div class="row">${fIco(fOf(S.focus), !!S.focus && !S.noFda)}
+        <div style="min-width:0"><div class="p">${S.noFda ? "Focus" : S.focus ? fOf(S.focus).name : "Focus off"}</div><div class="s">${S.noFda ? "Choose a mode" : S.focus ? "On · tap to change" : "Tap to choose"}</div></div>${S.kbd ? `<span style="margin-left:auto">${k(6)}</span>` : ""}</div></div>
+    </div>`;
+  },
+  B() {
+    return `<div class="row" style="justify-content:space-between;padding:0 2px 8px">
+        <span class="seg"><span class="${S.dark ? "" : "on"}" onclick="setDark(false)">☀ Light</span><span class="${S.dark ? "on" : ""}" onclick="setDark(true)">☾ Dark</span></span>
+        ${S.kbd ? k(5) : ""}
+        <span style="flex:1"></span>
+        <span class="pill" onclick="go('focus')">${fIco(fOf(S.focus), !!S.focus && !S.noFda)}${S.noFda ? "Focus" : S.focus ? fOf(S.focus).name : "Focus off"} ▾</span>
+        ${S.kbd ? `<span style="margin-left:6px">${k(6)}</span>` : ""}
+      </div><div class="grid">${tiles()}</div>`;
+  },
+  C() {
+    return `<div class="railwrap"><div style="grid-column:span 2" class="grid">${tiles()}</div>
+      <div class="rail">
+        <div class="rb" onclick="toggleDark()">${S.kbd ? k(5) : ""}${apIco()}${S.dark ? "Dark" : "Light"}</div>
+        <div class="rb" onclick="go('focus')">${S.kbd ? k(6) : ""}${fIco(fOf(S.focus), !!S.focus && !S.noFda)}${S.noFda ? "Focus" : S.focus ? fOf(S.focus).name.split(" ")[0] : "Focus"}</div>
+      </div></div>`;
+  },
+  D() {
+    const tabs = `<div class="tabs"><span class="${S.tab === "overview" ? "on" : ""}" onclick="setTab('overview')">Overview</span><span class="${S.tab === "controls" ? "on" : ""}" onclick="setTab('controls')">Controls${S.kbd ? " ⇥" : ""}</span></div>`;
+    if (S.tab === "overview") return tabs + `<div class="grid">${tiles()}</div>`;
+    return tabs + `<div class="cc">
+        <div class="big ${S.dark ? "" : "on"}" onclick="setDark(false)"><span class="ico sun">☀</span><div><div class="p">Light</div><div class="s">${S.kbd ? "L" : ""}</div></div></div>
+        <div class="big ${S.dark ? "on" : ""}" onclick="setDark(true)"><span class="ico moon" style="${S.dark ? "background:#000" : ""}">☾</span><div><div class="p">Dark</div><div class="s">${S.kbd ? "D" : ""}</div></div></div>
+      </div>
+      <div class="lab" style="padding:12px 4px 0">Focus ${S.noFda ? "· state unknown" : ""}</div>
+      <div class="fgrid">${FOCUS.map((f, i) => `<div class="fb ${!S.noFda && S.focus === f.id ? "on" : ""}" style="--fc:${f.c}" onclick="setFocus(S.focus==='${f.id}'?null:'${f.id}')">
+        <span class="ico">${f.g}</span>${f.name}${S.kbd ? `<span class="k" style="margin-top:2px">${i + 1}</span>` : ""}</div>`).join("")}
+        <div class="fb" onclick="setFocus(null)"><span class="ico">○</span>Off</div></div>`;
+  },
+};
+
+function render() {
+  const [name, desc] = V[S.variant];
+  $("vname").textContent = `${S.variant} — ${name}`; $("vdesc").textContent = desc;
+  $("vlabel").textContent = `${S.variant} — ${name}`;
+  $("desk").classList.toggle("dark", S.dark);
+  const f = fOf(S.focus);
+  $("mbFocus").className = "fm" + (f ? " on" : ""); $("mbFocus").innerHTML = f ? `<span style="color:${f.c}">${f.g}</span> ${f.name}` : "";
+  const inner = S.view === "focus" && S.variant !== "D" ? focusList() : R[S.variant]();
+  $("island").innerHTML = `<div class="notch"></div><div class="body ${S.kbd ? "" : "kbd-off"}">${inner}</div>`;
+  $("state").textContent = JSON.stringify({ variant: S.variant, appearance: S.dark ? "dark" : "light", focus: focusLabel(), view: S.variant === "D" ? S.tab : S.view }, null, 2);
+}
+function go(v) { S.view = v; S.sel = Math.max(0, [null, ...FOCUS.map(f => f.id)].indexOf(S.focus)); render(); }
+function setTab(t) { S.tab = t; render(); }
+function toggleDark() { S.dark = !S.dark; render(); }
+function setDark(d) { S.dark = d; render(); }
+function setFocus(id) { S.focus = id; S.noFda = false; $("noFda").checked = false; S.view = "home"; render(); }
+function noop() {}
+function setVariant(v) { S.variant = v; S.view = "home"; S.tab = "overview"; history.replaceState(null, "", "?variant=" + v); render(); }
+
+$("prev").onclick = () => setVariant(keys[(keys.indexOf(S.variant) + keys.length - 1) % keys.length]);
+$("next").onclick = () => setVariant(keys[(keys.indexOf(S.variant) + 1) % keys.length]);
+$("kbd").onchange = e => { S.kbd = e.target.checked; render(); };
+$("noFda").onchange = e => { S.noFda = e.target.checked; render(); };
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input")) return;
+  const list = [null, ...FOCUS.map(f => f.id)];
+  if (S.view === "focus" && S.variant !== "D") {
+    if (e.key === "ArrowDown") { S.sel = Math.min(S.sel + 1, list.length - 1); return render(); }
+    if (e.key === "ArrowUp") { S.sel = Math.max(S.sel - 1, 0); return render(); }
+    if (e.key === "Enter") return setFocus(list[S.sel]);
+    if (e.key === "Escape") return go("home");
+  }
+  if (e.key === "ArrowRight") return $("next").click();
+  if (e.key === "ArrowLeft") return $("prev").click();
+  if (e.key === "Tab" && S.variant === "D") { e.preventDefault(); return setTab(S.tab === "overview" ? "controls" : "overview"); }
+  if (S.variant === "D" && S.tab === "controls") {
+    if (e.key === "l") return setDark(false);
+    if (e.key === "d") return setDark(true);
+    const n = +e.key; if (n >= 1 && n <= FOCUS.length) return setFocus(S.focus === FOCUS[n - 1].id ? null : FOCUS[n - 1].id);
+  }
+  if (e.key === "5") return toggleDark();
+  if (e.key === "6" && S.variant !== "D") return go("focus");
+});
+render();
+</script>
+</body>
+</html>

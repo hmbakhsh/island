@@ -10,6 +10,7 @@ enum Content {
     case agents(height: CGFloat)
     case home
     case composer(height: CGFloat)
+    case focus(height: CGFloat)
 
     /// Identity for cross-fading between kinds of content.
     var key: String {
@@ -23,6 +24,7 @@ enum Content {
         case .agents: return "agents"
         case .home: return "home"
         case .composer: return "composer"
+        case .focus: return "focus"
         }
     }
 
@@ -36,7 +38,7 @@ enum Content {
             if m.plain == true { return m.body == nil ? 42 : 56 }
             return m.body == nil ? 50 : 70
         case .stack(let s): return StackLayout.height(s)
-        case .inbox(let height), .calendar(let height), .agents(let height): return height
+        case .inbox(let height), .calendar(let height), .agents(let height), .focus(let height): return height
         case .home: return HomeLayout.height
         case .composer(let height): return height
         }
@@ -96,6 +98,8 @@ struct IslandView: View {
     let watcher: T3Watcher
     let agenda: Agenda
     let composer: ComposerModel
+    let appearance: Appearance
+    let focus: Focus
     let onMessageTap: () -> Void
     let onMessageHover: (Bool) -> Void
     let onOpenThread: (String) -> Void
@@ -105,6 +109,7 @@ struct IslandView: View {
     let onOpenAgent: (String) -> Void
     let onOpenStackGroup: (String) -> Void
     let onClearStack: () -> Void
+    let onPickFocus: (String?) -> Void
 
     var body: some View {
         let quiet = state.content.width < islandWidth
@@ -188,9 +193,11 @@ struct IslandView: View {
         case .home:
             HomeView(
                 agenda: agenda, player: player, watcher: watcher, history: history,
-                keyboard: state.keyboard, open: onOpenPanel, join: onOpenURL)
+                appearance: appearance, focus: focus, keyboard: state.keyboard, open: onOpenPanel, join: onOpenURL)
         case .composer:
             ComposerView(model: composer)
+        case .focus:
+            FocusView(focus: focus, selected: state.selected, onPick: onPickFocus)
         }
     }
 }

@@ -4,7 +4,9 @@ import SwiftUI
 /// What hovering the notch shows: one tile each for the next event, the inbox
 /// and Spotify. Clicking a tile grows the island into that panel.
 enum HomeLayout {
-    static let height: CGFloat = 206
+    /// The 2×2 tiles, plus the Appearance and Focus row under them.
+    static let height: CGFloat = 206 + 8 + controlHeight
+    static let controlHeight: CGFloat = 50
 }
 
 struct HomeView: View {
@@ -12,6 +14,8 @@ struct HomeView: View {
     @ObservedObject var player: Player
     @ObservedObject var watcher: T3Watcher
     @ObservedObject var history: History
+    @ObservedObject var appearance: Appearance
+    @ObservedObject var focus: Focus
     /// Show 1/2/3 keycaps on the tiles.
     let keyboard: Bool
     let open: (Island.Panel) -> Void
@@ -38,6 +42,20 @@ struct HomeView: View {
                     agents
                 }
             }
+            HStack(spacing: 8) {
+                ControlCard(
+                    symbol: appearance.dark ? "moon.fill" : "sun.max.fill",
+                    tint: appearance.dark ? Color(nsColor: .systemIndigo) : Color(nsColor: .systemOrange), on: true,
+                    title: appearance.dark ? "Dark mode" : "Light mode", detail: nil,
+                    key: keyboard ? 5 : nil, action: appearance.toggle)
+                ControlCard(
+                    symbol: focus.activeMode?.symbol ?? "moon.circle", tint: focus.activeMode?.tint ?? .white,
+                    on: focus.activeMode != nil,
+                    title: focus.activeMode?.name ?? "Focus",
+                    detail: !focus.readable ? "Needs disk access" : focus.activeMode == nil ? "Off" : "On",
+                    key: keyboard ? 6 : nil) { open(.focus) }
+            }
+            .frame(height: HomeLayout.controlHeight)
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)
@@ -205,6 +223,56 @@ private struct Tile<Content: View>: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(hovered ? 0.12 : 0.07)))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onHover { hovered = $0 }
+        .onTapGesture(perform: action)
+        .animation(.easeOut(duration: 0.15), value: hovered)
+    }
+}
+
+/// A short card in the row under the tiles: one tap does it.
+private struct ControlCard: View {
+    let symbol: String
+    let tint: Color
+    let on: Bool
+    let title: String
+    let detail: String?
+    let key: Int?
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(on ? .white : .white.opacity(0.6))
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(on ? tint : Color.white.opacity(0.12)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+            if let key {
+                Text("\(key)")
+                    .font(.system(size: 10, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 17, height: 17)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(0.12)))
+            }
+        }
+        .padding(.horizontal, 11)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(hovered ? 0.12 : 0.07)))

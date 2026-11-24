@@ -78,6 +78,15 @@ out of the way: nothing sits beside the notch, "done" banners are skipped
 silent line that goes after 5 seconds. Verification codes still show in full.
 Turn it off with `"quietInFullScreen": false` or in settings.
 
+**Light/dark and Focus.** The overview's bottom row has two cards. The first
+switches macOS between light and dark (`island --appearance`), and every app set
+to follow the system follows. The second lists your Focus modes; pick one, or
+Off (`island --focus list|off|NAME`). Leave modes out of the list with `"hiddenFocusModes": ["Driving", "Work"]` in the config. Focus is set by writing macOS's Focus
+database in `~/Library/DoNotDisturb/DB` and restarting its daemon, which is
+unofficial and needs Full Disk Access, but takes effect in about a second with
+no Shortcuts round trip. Build with `SIGN_IDENTITY="<your code-signing identity>" just install`
+so Full Disk Access survives rebuilds.
+
 **Command bar.** Caps Lock then **A** (or `island --composer`) opens a field in
 the notch, aimed at wherever you last sent. Type, or hold right ⌥ to dictate
 with Hex, and press ⏎: it goes out in the background and the bar closes.
@@ -199,7 +208,7 @@ Caps Lock to another key in System Settings → Keyboard → Modifier Keys, Isla
 follows that too when it's a right-side modifier (built-in keyboards don't
 have those); otherwise set Caps Lock back to "⇪ Caps Lock" there. While it's open
 from Caps Lock, **1** opens your calendar, **2** opens notifications, **3** plays or
-pauses Spotify, **4** opens the agents list, **A** opens the command bar, and **,** opens settings; hold Caps Lock and press the number, or tap one then the other.
+pauses Spotify, **4** opens the agents list, **5** switches light/dark, **6** opens the Focus list, **A** opens the command bar, and **,** opens settings; hold Caps Lock and press the number, or tap one then the other.
 Both lists open with the first row highlighted: ↑ ↓ move, ⏎ opens it (the
 thread in T3, or the event's call, else the event in Calendar), so joining your
 next call is Caps Lock, 1, ⏎. The number and arrow keys are only taken while

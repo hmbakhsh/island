@@ -45,6 +45,8 @@ final class Island: NSObject, NSApplicationDelegate {
     let fullScreen = FullScreenWatcher()
     let state = IslandState()
     let composer = ComposerModel()
+    let appearance = Appearance()
+    let focus = Focus()
     let grok = GrokWatch()
     private let grokQueue = DispatchQueue(label: "island.grok")
     private var grokTimer: Timer?
@@ -67,6 +69,8 @@ final class Island: NSObject, NSApplicationDelegate {
     private var homePinned = false
     /// The next panel was opened from the keyboard and should take ↑ ↓ ⏎.
     private var pendingListKeys = false
+    /// The open list takes 1–9 to pick its rows.
+    private var listNumbers = false
     private var meetingTimer: Timer?
     /// Meetings already announced, so each gets one reminder.
     private var remindedMeetings = Set<String>()
@@ -89,6 +93,7 @@ final class Island: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         let host = FirstClickHost(rootView: IslandView(
             state: state, player: player, history: history, watcher: watcher, agenda: agenda, composer: composer,
+            appearance: appearance, focus: focus,
             onMessageTap: { [weak self] in self?.tapMessage() },
             onMessageHover: { [weak self] inside in self?.hoverMessage(inside) },
             onOpenThread: { [weak self] id in
@@ -109,7 +114,8 @@ final class Island: NSObject, NSApplicationDelegate {
                 self?.close()
             },
             onOpenStackGroup: { [weak self] key in self?.openStackGroup(key) },
-            onClearStack: { [weak self] in self?.close() }))
+            onClearStack: { [weak self] in self?.close() },
+            onPickFocus: { [weak self] id in self?.pickFocus(id) }))
         // The island sizes the window itself; don't let SwiftUI resize it too.
         host.sizingOptions = []
         panel.contentView = host
@@ -180,6 +186,25 @@ final class Island: NSObject, NSApplicationDelegate {
         }
         center.addObserver(forName: settingsName, object: nil, queue: .main) { [weak self] _ in
             self?.openSettings()
+        }
+        center.addObserver(forName: appearanceName, object: nil, queue: .main) { [weak self] _ in
+            self?.appearance.toggle()
+        }
+        center.addObserver(forName: focusName, object: nil, queue: .main) { [weak self] note in
+            guard let self, let arg = note.userInfo?["json"] as? String else { return }
+            switch arg.lowercased() {
+            case "list": self.toggle(.focus, keyboard: true)
+            case "off": self.focus.set(nil)
+            default:
+                self.focus.reload { [weak self] in
+                    guard let self else { return }
+                    if let mode = self.focus.modes.first(where: { $0.id == arg || $0.name.lowercased() == arg.lowercased() }) {
+                        self.focus.set(mode.id)
+                    } else {
+                        log("focus: no mode called \(arg)")
+                    }
+                }
+            }
         }
         center.addObserver(forName: composerName, object: nil, queue: .main) { [weak self] _ in
             self?.toggle(.composer)
@@ -285,7 +310,7 @@ final class Island: NSObject, NSApplicationDelegate {
 
     // MARK: Panels opened from the bar
 
-    enum Panel { case player, inbox, calendar, agents, home, composer }
+    enum Panel { case player, inbox, calendar, agents, home, composer, focus }
 
     private var openPanel: Panel? {
         guard state.open else { return nil }
@@ -296,13 +321,14 @@ final class Island: NSObject, NSApplicationDelegate {
         case .agents: return .agents
         case .home: return .home
         case .composer: return .composer
+        case .focus: return .focus
         case .message, .stack: return nil
         }
     }
 
     /// keyboard: opened by a key, so the panel takes its list keys (↑ ↓ ⏎).
     private func toggle(_ panel: Panel, keyboard: Bool = false) {
-        pendingListKeys = keyboard && (panel == .agents || panel == .calendar || panel == .inbox)
+        pendingListKeys = keyboard && (panel == .agents || panel == .calendar || panel == .inbox || panel == .focus)
         if openPanel == panel || (panel == .home && openPanel != nil) {
             // The trigger key closes whatever panel is open.
             close()
@@ -334,8 +360,9 @@ final class Island: NSObject, NSApplicationDelegate {
     /// Loads what a panel needs, then hands back its content. Calendar waits
     /// for the permission prompt the first time.
     private func content(for panel: Panel, _ done: @escaping (Content) -> Void) {
-        if panel != .agents && panel != .calendar && panel != .inbox {
+        if panel != .agents && panel != .calendar && panel != .inbox && panel != .focus {
             Trigger.captureList(nil)
+            listNumbers = false
             state.selected = nil
         }
         switch panel {
@@ -360,9 +387,17 @@ final class Island: NSObject, NSApplicationDelegate {
             let latestDone = watcher.completed.filter { shown.contains($0.id) }.max { $0.since < $1.since }?.id
             state.selected = takeListKeys() ? latestDone ?? AgentsView.order(watcher).first : nil
             done(.agents(height: AgentsView.height(watcher)))
+        case .focus:
+            let keys = takeListKeys()
+            focus.reload { [weak self] in
+                guard let self else { return }
+                self.state.selected = keys ? self.focus.active ?? FocusView.off : nil
+                done(.focus(height: FocusLayout.height(self.focus)))
+            }
         case .home:
             agenda.reloadIfAllowed()
             player.refresh()
+            focus.reload()
             homePinned = true
             state.keyboard = Config.shared.capsLockTrigger == true
             if state.keyboard { Trigger.captureNumbers { [weak self] n in self?.pressNumber(n) } }
@@ -380,6 +415,7 @@ final class Island: NSObject, NSApplicationDelegate {
         let keys = pendingListKeys
         pendingListKeys = false
         Trigger.captureList(keys ? { [weak self] key in self?.pressListKey(key) } : nil)
+        listNumbers = keys
         return keys
     }
 
@@ -392,6 +428,7 @@ final class Island: NSObject, NSApplicationDelegate {
         case .agents: order = AgentsView.order(watcher)
         case .calendar: order = agenda.events.map(\.id)
         case .inbox: order = InboxView.order(history)
+        case .focus: order = FocusView.order(focus)
         default: return
         }
         guard !order.isEmpty else { return }
@@ -403,6 +440,9 @@ final class Island: NSObject, NSApplicationDelegate {
             let id = state.selected ?? order[0]
             if case .calendar = state.content {
                 if let event = agenda.events.first(where: { $0.id == id }) { NSWorkspace.shared.open(event.openURL) }
+            } else if case .focus = state.content {
+                pickFocus(id == FocusView.off ? nil : id)
+                return
             } else if case .inbox = state.content {
                 InboxView.entry(id, in: history)?.open()
             } else {
@@ -480,7 +520,35 @@ final class Island: NSObject, NSApplicationDelegate {
         scheduleDismiss(after: 30)
     }
 
-    /// 1: calendar. 2: notifications. 3: play/pause. 4: agents. ",": settings. A: the command bar.
+    /// 1–9 in a list: open (or, for Focus, pick) that row.
+    private func pressListNumber(_ n: Int) {
+        guard state.open, n <= 9 else { return }
+        let order: [String]
+        switch state.content {
+        case .agents: order = AgentsView.order(watcher)
+        case .calendar: order = agenda.events.map(\.id)
+        case .inbox: order = InboxView.order(history)
+        case .focus: order = FocusView.order(focus)
+        default: return
+        }
+        guard n <= order.count else { return }
+        state.selected = order[n - 1]
+        pressListKey(.open)
+    }
+
+    private func captureListNumbers() {
+        guard listNumbers else { return }
+        Trigger.captureNumbers { [weak self] n in self?.pressListNumber(n) }
+    }
+
+    /// Sets a Focus mode (nil: off) and closes.
+    private func pickFocus(_ id: String?) {
+        focus.set(id)
+        close()
+    }
+
+    /// 1: calendar. 2: notifications. 3: play/pause. 4: agents. 5: light/dark.
+    /// 6: Focus. ",": settings. A: the command bar.
     /// Lists open with ↑ ↓ ⏎.
     private func pressNumber(_ n: Int) {
         guard case .home = state.content, state.open else { return }
@@ -494,8 +562,12 @@ final class Island: NSObject, NSApplicationDelegate {
         case 4:
             toggle(.agents, keyboard: true)
         case 5:
-            openSettings()
+            appearance.toggle()
         case 6:
+            toggle(.focus, keyboard: true)
+        case 10:
+            openSettings()
+        case 11:
             toggle(.composer)
         default:
             break
@@ -812,6 +884,7 @@ final class Island: NSObject, NSApplicationDelegate {
     // MARK: Panel
 
     private func present(_ content: Content) {
+        captureListNumbers()
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
         else { return }
@@ -846,6 +919,7 @@ final class Island: NSObject, NSApplicationDelegate {
         to content: Content, animation: Animation = .spring(response: 0.34 * slowmo, dampingFraction: 0.86)
     ) {
         releaseNumbers()
+        captureListNumbers()
         // Grow the window first (it's transparent), shrink it only once the
         // shape has finished, so the window edge never cuts the animation.
         setFrame(contentHeight: max(content.height, state.content.height))
@@ -879,6 +953,10 @@ final class Island: NSObject, NSApplicationDelegate {
 
     private func close() {
         guard state.open else { return }
+        if listNumbers {
+            listNumbers = false
+            Trigger.captureNumbers(nil)
+        }
         let composing = if case .composer = state.content { true } else { false }
         if composing {
             composer.composer.close()
