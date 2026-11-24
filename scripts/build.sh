@@ -20,8 +20,14 @@ mkdir -p "$APP/Contents/Resources" && cp -R Resources/GrokAvatars "$APP/Contents
 if [[ -n "${VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 fi
-# Ad-hoc signed, but matched by bundle id rather than build hash, so macOS
-# keeps the calendar and Spotify permissions across rebuilds and updates.
-codesign --force --sign - -r='designated => identifier "dev.notchisland.Island"' "$APP"
+# SIGN_IDENTITY=<keychain code-signing identity> signs with a certificate, so
+# Full Disk Access survives rebuilds too (ad-hoc builds lose it).
+# Otherwise ad-hoc, matched by bundle id rather than build hash, so macOS keeps
+# the calendar and Spotify permissions across rebuilds and updates.
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  codesign --force --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --sign - -r='designated => identifier "dev.notchisland.Island"' "$APP"
+fi
 (cd build && rm -f Island.zip && ditto -c -k --keepParent Island.app Island.zip)
 echo "Built $APP ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"))"

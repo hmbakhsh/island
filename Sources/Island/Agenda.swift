@@ -207,6 +207,8 @@ struct Config: Codable {
     var chatgptHeliumProfile: String?
     /// Where the command bar last sent ("t3:<root>", "grok:<id>", "chatgpt"). Written by Island.
     var composerLastTarget: String?
+    /// Focus modes left out of the Focus list, by name (still settable with `island --focus NAME`).
+    var hiddenFocusModes: [String]?
 
     var banner: Double { bannerSeconds ?? 8 }
     var meetingLead: Int { meetingLeadMinutes ?? 2 }

@@ -95,6 +95,8 @@ enum Trigger {
         } else if id == 20 {
             guard !capsEscape else { return }
             escapeAction?()
+        } else if id >= 40 {
+            numberAction?(Int(id) - 39)
         } else if id >= 30 {
             let key = [ListKey.up, .down, .open][Int(id) - 30]
             // One ⏎ can arrive twice; opening twice would skip a row.
@@ -104,8 +106,6 @@ enum Trigger {
                 guard now.timeIntervalSince(lastOpen) > 0.25 else { return }
             }
             listAction?(key)
-        } else {
-            numberAction?(Int(id) - 10)
         }
     }
 
@@ -145,17 +145,20 @@ enum Trigger {
         RegisterEventHotKey(UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &escapeKey)
     }
 
-    /// Captures 1–4, "," (settings) and A (the command bar) everywhere
+    /// Captures 1–9, "," (settings) and A (the command bar) everywhere
     /// while the island is open from the keyboard, and gives them back as
-    /// soon as it closes.
+    /// soon as it closes. The handler gets 1–9 for the digits, 10 for ",", 11 for A.
     static func captureNumbers(_ handler: ((Int) -> Void)?) {
         numberKeys.forEach { UnregisterEventHotKey($0) }
         numberKeys = []
         numberAction = handler
         guard handler != nil else { return }
-        for (n, key) in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_Comma, kVK_ANSI_A].enumerated() {
+        for (n, key) in [
+            kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9,
+            kVK_ANSI_Comma, kVK_ANSI_A,
+        ].enumerated() {
             var ref: EventHotKeyRef?
-            let id = EventHotKeyID(signature: signature, id: UInt32(11 + n))
+            let id = EventHotKeyID(signature: signature, id: UInt32(40 + n))
             if RegisterEventHotKey(UInt32(key), 0, id, GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
                 numberKeys.append(ref)
             }
